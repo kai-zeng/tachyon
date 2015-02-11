@@ -31,6 +31,7 @@ import tachyon.UnderFileSystem;
 import tachyon.conf.UserConf;
 import tachyon.thrift.ClientBlockInfo;
 import tachyon.thrift.NetAddress;
+import tachyon.thrift.WorkerInfo;
 import tachyon.util.NetworkUtils;
 import tachyon.worker.nio.DataServerMessage;
 
@@ -255,17 +256,15 @@ public class RemoteBlockInStream extends BlockInStream {
     ByteBuffer buf = null;
 
     try {
-      List<NetAddress> blockLocations = blockInfo.getLocations();
-      LOG.info("Block locations:" + blockLocations);
+      // This will be WRONG when partial-block is completed. Right now, only entire blocks are
+      // cached, so all of the worker addresses contain the entire block.
+      List<WorkerInfo> workers = blockInfo.getWorkers();
+      LOG.info("Block locations:" + workers);
 
-      for (NetAddress blockLocation : blockLocations) {
-        String host = blockLocation.mHost;
-        int port = blockLocation.mSecondaryPort;
+      for (WorkerInfo worker : workers) {
+        String host = worker.getAddress().mHost;
+        int port = worker.getAddress().mSecondaryPort;
 
-        // The data is not in remote machine's memory if port == -1.
-        if (port == -1) {
-          continue;
-        }
         if (host.equals(InetAddress.getLocalHost().getHostName())
             || host.equals(InetAddress.getLocalHost().getHostAddress())
             || host.equals(NetworkUtils.getLocalHostName())) {
