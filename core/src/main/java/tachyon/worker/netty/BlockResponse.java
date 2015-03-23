@@ -16,6 +16,7 @@
 package tachyon.worker.netty;
 
 import java.nio.ByteBuffer;
+import java.nio.channels.ByteChannel;
 import java.nio.channels.FileChannel;
 import java.util.List;
 
@@ -30,6 +31,7 @@ import com.google.common.primitives.Shorts;
 
 import tachyon.Constants;
 import tachyon.conf.TachyonConf;
+import tachyon.util.PageUtils;
 import tachyon.worker.BlockHandler;
 import tachyon.worker.nio.DataServerMessage;
 
@@ -46,11 +48,13 @@ public final class BlockResponse {
     private static final int MESSAGE_LENGTH = Shorts.BYTES + Longs.BYTES * 3;
 
     private final TachyonConf mTachyonConf;
+    private final long mPageSize;
 
     public Encoder(TachyonConf tachyonConf) {
       super();
 
       mTachyonConf = tachyonConf;
+      mPageSize = tachyonConf.getBytes(Constants.PAGE_SIZE_BYTE, Constants.DEFAULT_PAGE_SIZE_BYTE);
     }
 
     private ByteBuf createHeader(final ChannelHandlerContext ctx, final BlockResponse msg) {
@@ -80,12 +84,23 @@ public final class BlockResponse {
             handler.close();
             break;
           default: // TRANSFER
-            if (handler.getChannel() instanceof FileChannel) {
-              out.add(new DefaultFileRegion((FileChannel) handler.getChannel(), msg.getOffset(),
-                  msg.getLength()));
-            } else {
-              handler.close();
-              throw new Exception("Only FileChannel is supported!");
+            // We try to add a channel for each page
+            long bytesProcessed = 0;
+            for (int pageId = PageUtils.getPageId(mTachyonConf, msg.getOffset()); pageId < PageUtils
+                .getPageId(mTachyonConf, msg.getOffset() + msg.getLength() - 1); pageId ++) {
+              long pageOffset =
+                  (msg.getOffset() + bytesProcessed) - PageUtils.getPageOffset(mTachyonConf, pageId);
+              long bytesToRead =
+                  Math.min(mPageSize - pageOffset, msg.getLength() - bytesProcessed);
+              ByteChannel channel = handler.getChannel(pageOffset, bytesToRead);
+              bytesProcessed += bytesToRead;
+              if (channel instanceof FileChannel) {
+                out.add(new DefaultFileRegion((FileChannel) channel, msg.getOffset(), msg
+                    .getLength()));
+              } else {
+                handler.close();
+                throw new Exception("Only FileChannel is supported!");
+              }
             }
             break;
         }

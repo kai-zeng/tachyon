@@ -256,7 +256,6 @@ public class StorageTier {
    * @param userId id of the user
    * @param requestSizeBytes size to request in bytes
    * @param pinList list of pinned files
-   * @param removedBlockIds list of blocks which are removed from Tachyon
    * @return the StorageDir assigned.
    * @throws IOException
    */

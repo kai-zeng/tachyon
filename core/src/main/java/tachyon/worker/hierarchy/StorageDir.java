@@ -170,22 +170,25 @@ public final class StorageDir {
    * @throws IOException
    */
   public boolean cacheBlock(long userId, long blockId) throws IOException {
-    String srcPath = getUserTempFilePath(userId, blockId);
-    String dstPath = getBlockFilePath(blockId);
-    Pair<Long, Long> blockInfo = new Pair<Long, Long>(userId, blockId);
-
-    if (!(mFs.exists(srcPath) && mTempBlockAllocatedBytes.containsKey(blockInfo))) {
+    String srcPath = getUserTempBlockPath(userId, blockId).toString();
+    String dstPath = getBlockDirPath(blockId).toString();
+    Long allocatedBytes = mTempBlockAllocatedBytes.remove(new Pair<Long, Long>(userId, blockId));
+    if (!mFs.exists(srcPath) || allocatedBytes == null) {
       cancelBlock(userId, blockId);
       throw new IOException("Block file doesn't exist! blockId:" + blockId + " " + srcPath);
     }
-    long blockSize = mFs.getFileSize(srcPath);
+    long blockSize = BlockHandler.get(srcPath).getLength();
     if (blockSize < 0) {
       cancelBlock(userId, blockId);
       throw new IOException("Negative block size! blockId:" + blockId);
     }
-    Long allocatedBytes = mTempBlockAllocatedBytes.remove(blockInfo);
     returnSpace(userId, allocatedBytes - blockSize);
-    if (mFs.rename(srcPath, dstPath)) {
+    if (mFs.exists(dstPath)) {
+      // The rename won't do anything since the block is already cached
+      mFs.delete(srcPath, true);
+      returnSpace(userId, blockSize);
+      return true;
+    } else if (mFs.rename(srcPath, dstPath)) {
       addBlockId(blockId, blockSize, false);
       updateUserOwnBytes(userId, -blockSize);
       return true;
@@ -203,16 +206,16 @@ public final class StorageDir {
    * @throws IOException
    */
   public boolean cancelBlock(long userId, long blockId) throws IOException {  
-    String filePath = getUserTempFilePath(userId, blockId);
+    String blockPath = getUserTempBlockPath(userId, blockId).toString();
     Long allocatedBytes = mTempBlockAllocatedBytes.remove(new Pair<Long, Long>(userId, blockId));
     if (allocatedBytes == null) {
       allocatedBytes = 0L;
     }
     returnSpace(userId, allocatedBytes);
-    if (!mFs.exists(filePath)) {
+    if (!mFs.exists(blockPath)) {
       return true;
     } else {
-      return mFs.delete(filePath, false);
+      return mFs.delete(blockPath, true);
     }
   }
 
@@ -231,7 +234,7 @@ public final class StorageDir {
       mTempBlockAllocatedBytes.remove(new Pair<Long, Long>(userId, tempBlockId));
     }
     try {
-      mFs.delete(getUserTempPath(userId), true);
+      mFs.delete(getUserTempPath(userId).toString(), true);
     } catch (IOException e) {
       LOG.error(e.getMessage(), e);
     }
@@ -270,7 +273,7 @@ public final class StorageDir {
       BlockHandler bhSrc = closer.register(getBlockHandler(blockId));
       BlockHandler bhDst = closer.register(dstDir.getBlockHandler(blockId));
       buffer = bhSrc.read(0, (int) size);
-      copySuccess = (bhDst.append(0, buffer) == size);
+      copySuccess = (bhDst.append(buffer) == size);
     } finally {
       closer.close();
       CommonUtils.cleanDirectBuffer(buffer);
@@ -295,11 +298,11 @@ public final class StorageDir {
       LOG.warn("Block does not exist in current StorageDir! blockId:{}", blockId);
       return false;
     }
-    String blockfile = getBlockFilePath(blockId);
+    String blockDir = getBlockDirPath(blockId).toString();
     // Should check lock status here 
     if (!isBlockLocked(blockId)) {
-      if (!mFs.delete(blockfile, false)) {
-        LOG.error("Failed to delete block file! filename:{}", blockfile);
+      if (!mFs.delete(blockDir, true)) {
+        LOG.error("Failed to delete block directory! filename:{}", blockDir);
         return false;
       }
       deleteBlockId(blockId);
@@ -308,7 +311,7 @@ public final class StorageDir {
         mRemovedBlockIdList.remove(blockId);
       }
       mToRemoveBlockIdSet.add(blockId);
-      LOG.debug("Add block file {} to remove list!", blockfile);
+      LOG.debug("Add block file {} to remove list!", blockDir);
     }
     return true;
   }
@@ -381,13 +384,13 @@ public final class StorageDir {
   }
 
   /**
-   * Get file path of the block file
+   * Get directory path of the block file
    * 
    * @param blockId Id of the block
-   * @return file path of the block
+   * @return directory path of the block
    */
-  public String getBlockFilePath(long blockId) {
-    return mDataPath.join("" + blockId).toString();
+  public TachyonURI getBlockDirPath(long blockId) {
+    return mDataPath.join("" + blockId);
   }
 
   /**
@@ -398,7 +401,7 @@ public final class StorageDir {
    * @throws IOException
    */
   public BlockHandler getBlockHandler(long blockId) throws IOException {
-    String filePath = getBlockFilePath(blockId);
+    String filePath = getBlockDirPath(blockId).toString();
     try {
       return BlockHandler.get(filePath);
     } catch (IllegalArgumentException e) {
@@ -547,8 +550,8 @@ public final class StorageDir {
    * @param blockId Id of the block
    * @return temporary file path of the block
    */
-  public String getUserTempFilePath(long userId, long blockId) {
-    return mUserTempPath.join("" + userId).join("" + blockId).toString();
+  public TachyonURI getUserTempBlockPath(long userId, long blockId) {
+    return getUserTempPath(userId).join("" + blockId);
   }
 
   /**
@@ -566,8 +569,8 @@ public final class StorageDir {
    * @param userId Id of the user
    * @return temporary path of the user
    */
-  public String getUserTempPath(long userId) {
-    return mUserTempPath.join("" + userId).toString();
+  public TachyonURI getUserTempPath(long userId) {
+    return mUserTempPath.join("" + userId);
   }
 
   /**
@@ -598,15 +601,20 @@ public final class StorageDir {
 
     int cnt = 0;
     for (String name : mFs.list(dataPath)) {
+      if (name.equals(mUserTempPath.getName())) {
+        // The users directory is not a valid block dir, so we skip it
+        continue;
+      }
       String path = mDataPath.join(name).toString();
-      if (mFs.isFile(path)) {
+      if (!mFs.isFile(path)) {
         cnt ++;
-        long fileSize = mFs.getFileSize(path);
-        LOG.debug("File {}: {} with size {} Bs.", cnt, path, fileSize);
-        long blockId = CommonUtils.getBlockIdFromFileName(name);
-        boolean success = mSpaceCounter.requestSpaceBytes(fileSize);
+        long blockId = CommonUtils.getBlockIdFromDirName(name);
+        BlockHandler bh = getBlockHandler(blockId);
+        long blockSize = bh.getLength();
+        LOG.debug("Block dir{}: {} with size {} Bs.", cnt, path, blockSize);
+        boolean success = mSpaceCounter.requestSpaceBytes(blockSize);
         if (success) {
-          addBlockId(blockId, fileSize, true);
+          addBlockId(blockId, blockSize, true);
         } else {
           mFs.delete(path, true);
           LOG.warn("Pre-existing files exceed storage capacity. deleting file:{}", path);
@@ -717,7 +725,7 @@ public final class StorageDir {
       mLockedBlocksPerUser.remove(userId, blockId);
       if (!isBlockLocked(blockId) && mToRemoveBlockIdSet.contains(blockId)) {
         try {
-          if (!mFs.delete(getBlockFilePath(blockId), false)) {
+          if (!mFs.delete(getBlockDirPath(blockId).toString(), true)) {
             return false;
           }
           mToRemoveBlockIdSet.remove(blockId);

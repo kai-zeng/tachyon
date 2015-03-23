@@ -68,7 +68,7 @@ public class TFsShellTest {
 
   @Before
   public final void before() throws IOException {
-    mLocalTachyonCluster = new LocalTachyonCluster(SIZE_BYTES, 1000, Constants.GB);
+    mLocalTachyonCluster = new LocalTachyonCluster(SIZE_BYTES, Constants.KB, Constants.GB);
     mLocalTachyonCluster.start();
     mTfs = mLocalTachyonCluster.getClient();
     mFsShell = new TFsShell(mLocalTachyonCluster.getMasterTachyonConf());

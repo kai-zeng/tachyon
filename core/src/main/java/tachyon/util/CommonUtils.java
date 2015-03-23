@@ -127,7 +127,9 @@ public final class CommonUtils {
     }
     if (buffer.isDirect()) {
       Cleaner cleaner = ((DirectBuffer)buffer).cleaner();
-      cleaner.clean();
+      if (cleaner != null) {
+        cleaner.clean();
+      }
     }
   }
 
@@ -232,14 +234,12 @@ public final class CommonUtils {
     return correctData;
   }
 
-  public static long getBlockIdFromFileName(String name) {
-    long fileId;
+  public static long getBlockIdFromDirName(String name) {
     try {
-      fileId = Long.parseLong(name);
+      return Long.parseLong(name);
     } catch (Exception e) {
-      throw new IllegalArgumentException("Wrong file name: " + name);
+      throw new IllegalArgumentException("Wrong directory name: " + name);
     }
-    return fileId;
   }
 
   public static long getCurrentMs() {

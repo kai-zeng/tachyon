@@ -89,7 +89,7 @@ public class WorkerServiceHandler implements WorkerService.Iface {
     if (storageDir == null) {
       throw new FileDoesNotExistException("Block file not found! blockId:" + blockId);
     } else {
-      return storageDir.getBlockFilePath(blockId);
+      return storageDir.getBlockDirPath(blockId).toString();
     }
   }
 

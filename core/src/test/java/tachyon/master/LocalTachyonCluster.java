@@ -52,6 +52,7 @@ public final class LocalTachyonCluster {
   private long mWorkerCapacityBytes;
   private int mUserBlockSize;
   private int mQuotaUnitBytes;
+  private long mPageSizeBytes;
 
   private String mTachyonHome;
 
@@ -67,9 +68,18 @@ public final class LocalTachyonCluster {
   private TachyonConf mWorkerConf;
 
   public LocalTachyonCluster(long workerCapacityBytes, int quotaUnitBytes, int userBlockSize) {
+    this(workerCapacityBytes, quotaUnitBytes, userBlockSize, Constants.DEFAULT_PAGE_SIZE_BYTE);
     mWorkerCapacityBytes = workerCapacityBytes;
     mQuotaUnitBytes = quotaUnitBytes;
     mUserBlockSize = userBlockSize;
+  }
+
+  public LocalTachyonCluster(long workerCapacityBytes, int quotaUnitBytes, int userBlockSize,
+      long pageSizeBytes) {
+    mWorkerCapacityBytes = workerCapacityBytes;
+    mQuotaUnitBytes = quotaUnitBytes;
+    mUserBlockSize = userBlockSize;
+    mPageSizeBytes = pageSizeBytes;
   }
 
   public TachyonFS getClient() throws IOException {
@@ -169,10 +179,11 @@ public final class LocalTachyonCluster {
     mMasterConf = new TachyonConf();
     mMasterConf.set(Constants.IN_TEST_MODE, "true");
     mMasterConf.set(Constants.TACHYON_HOME, mTachyonHome);
+    mWorkerConf.set(Constants.PAGE_SIZE_BYTE, Long.toString(mPageSizeBytes));
     mMasterConf.set(Constants.USER_QUOTA_UNIT_BYTES, Integer.toString(mQuotaUnitBytes));
     mMasterConf.set(Constants.USER_DEFAULT_BLOCK_SIZE_BYTE, Integer.toString(mUserBlockSize));
     mMasterConf.set(Constants.USER_REMOTE_READ_BUFFER_SIZE_BYTE, "64");
-    
+
     // Since tests are always running on a single host keep the resolution timeout low as otherwise people
     // running with strange network configurations will see very slow tests
     mMasterConf.set(Constants.HOST_RESOLUTION_TIMEOUT_MS, "250");

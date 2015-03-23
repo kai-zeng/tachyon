@@ -62,6 +62,8 @@ public class Constants {
 
   public static final int DEFAULT_BLOCK_SIZE_BYTE = 512 * MB;
 
+  public static final long DEFAULT_PAGE_SIZE_BYTE = 64 * KB;
+
   public static final int DEFAULT_CHECKPOINT_CAP_MB_SEC = 1000;
 
   public static final int WORKER_BLOCKS_QUEUE_SIZE = 10000;
@@ -114,6 +116,7 @@ public class Constants {
   public static final String UNDERFS_HADOOP_PREFIXS = "tachyon.underfs.hadoop.prefixes";
   public static final String MAX_TABLE_METADATA_BYTE = "tachyon.max.table.metadata.byte";
   public static final String FORMAT_FILE_PREFIX = "_format_";
+  public static final String PAGE_SIZE_BYTE = "tachyon.page.size.byte";
 
   public static final String MASTER_FORMAT_FILE_PREFIX = "tachyon.master.format.file_prefix";
   public static final String MASTER_HOSTNAME = "tachyon.master.hostname";

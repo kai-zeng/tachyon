@@ -29,6 +29,7 @@ import tachyon.conf.TachyonConf;
 import tachyon.master.LocalTachyonCluster;
 import tachyon.thrift.ClientBlockInfo;
 import tachyon.util.CommonUtils;
+import tachyon.worker.BlockHandler;
 
 /**
  * Unit tests for tachyon.client.TachyonFile.
@@ -188,15 +189,11 @@ public class TachyonFileTest {
 
       TachyonFile file = mTfs.getFile(fileId);
       Assert.assertEquals(1, file.getNumberOfBlocks());
-      String localFname = file.getLocalFilename(0);
-      Assert.assertNotNull("Block not found on local ramdisk", localFname);
-      RandomAccessFile lfile = new RandomAccessFile(localFname, "r");
-      byte[] buf = new byte[k];
-      lfile.read(buf, 0, k);
-
-      Assert.assertTrue(TestUtils.equalIncreasingByteArray(k, buf));
-
-      lfile.close();
+      String localDir = file.getLocalDirectory(0);
+      Assert.assertNotNull("Block not found on local ramdisk", localDir);
+      BlockHandler bh = BlockHandler.get(localDir);
+      Assert.assertEquals(TestUtils.getIncreasingByteBuffer(k), bh.read(0, k));
+      bh.close();
     }
   }
 

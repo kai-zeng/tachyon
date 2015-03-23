@@ -39,6 +39,7 @@ import tachyon.conf.TachyonConf;
 import tachyon.master.LocalTachyonCluster;
 import tachyon.thrift.NetAddress;
 import tachyon.util.CommonUtils;
+import tachyon.util.PageUtils;
 import tachyon.worker.hierarchy.StorageDir;
 
 /**
@@ -47,6 +48,7 @@ import tachyon.worker.hierarchy.StorageDir;
 public class WorkerStorageTest {
   private static final long WORKER_CAPACITY_BYTES = 100000;
   private static final int USER_QUOTA_UNIT_BYTES = 100;
+  private static final int PAGE_SIZE_BYTE = 1 * Constants.KB;
 
   private LocalTachyonCluster mLocalTachyonCluster = null;
   private TachyonFS mTfs = null;
@@ -68,7 +70,7 @@ public class WorkerStorageTest {
   public final void before() throws IOException {
     mExecutorService = Executors.newFixedThreadPool(2);
     mLocalTachyonCluster = new LocalTachyonCluster(WORKER_CAPACITY_BYTES, USER_QUOTA_UNIT_BYTES,
-        Constants.GB);
+        Constants.GB, PAGE_SIZE_BYTE);
     mLocalTachyonCluster.start();
     mTfs = mLocalTachyonCluster.getClient();
 
@@ -90,13 +92,16 @@ public class WorkerStorageTest {
         mLocalTachyonCluster.getWorker().getTachyonConf());
     try {
       ws.initialize(mWorkerAddress);
-      String orpahnblock = ws.getUfsOrphansFolder() + TachyonURI.SEPARATOR + bid;
-      UnderFileSystem ufs = UnderFileSystem.get(orpahnblock,
-          mLocalTachyonCluster.getMasterTachyonConf());
+      String orphanBlockDir = CommonUtils.concat(ws.getUfsOrphansFolder(), bid);
+      UnderFileSystem ufs = UnderFileSystem.get(orphanBlockDir, mLocalTachyonCluster.getMasterTachyonConf());
       StorageDir storageDir = ws.getStorageDirByBlockId(bid);
       Assert.assertFalse("Orphan block file isn't deleted from workerDataFolder", storageDir != null);
-      Assert.assertTrue("UFS hasn't the orphan block file ", ufs.exists(orpahnblock));
-      Assert.assertTrue("Orpahblock file size is changed", ufs.getFileSize(orpahnblock) == filesize);
+      Assert.assertTrue("UFS doesn't have the orphan block directory", ufs.exists(orphanBlockDir));
+      long dirSize = 0;
+      for (String name : ufs.list(orphanBlockDir)) {
+        dirSize += ufs.getFileSize(CommonUtils.concat(orphanBlockDir, name));
+      }
+      Assert.assertTrue("Orpahblock file size is changed", dirSize == filesize);
     } finally {
       ws.stop();
     }
@@ -153,18 +158,18 @@ public class WorkerStorageTest {
    * @throws Exception
    */
   @Test
-  public void unknownBlockFilesTest() throws Exception {
+
+  public void unknownBlockDirTest() throws Exception {
     TachyonConf workerConf = mLocalTachyonCluster.getWorkerTachyonConf();
     String dirPath = workerConf.get("tachyon.worker.hierarchystore.level0.dirs.path", null);
-    String dataFolder = CommonUtils.concat(dirPath, mWorkerDataFolder);
+    String dataFolder = CommonUtils.concat(dirPath, PageUtils.getWorkerDataFolder(workerConf));
     thrown.expect(IllegalArgumentException.class);
-    thrown.expectMessage("Wrong file name: xyz");
+    thrown.expectMessage("Wrong directory name: xyz");
     mLocalTachyonCluster.stopWorker();
     // try a non-numerical file name
     File unknownFile = new File(dataFolder + TachyonURI.SEPARATOR + "xyz");
-    unknownFile.createNewFile();
-    WorkerStorage ws = new WorkerStorage(mMasterAddress, mExecutorService,
-        mLocalTachyonCluster.getWorker().getTachyonConf());
+    unknownFile.mkdirs();
+    WorkerStorage ws = new WorkerStorage(mMasterAddress, mExecutorService, mLocalTachyonCluster.getWorker().getTachyonConf());
     try {
       ws.initialize(mWorkerAddress);
     } finally {

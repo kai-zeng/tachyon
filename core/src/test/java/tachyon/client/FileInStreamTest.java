@@ -31,6 +31,7 @@ import tachyon.master.LocalTachyonCluster;
  */
 public class FileInStreamTest {
   private static final int BLOCK_SIZE = 30;
+  private static final int PAGE_SIZE = 20;
   private static final int MIN_LEN = BLOCK_SIZE + 1;
   private static final int MAX_LEN = 255;
   private static final int MEAN = (MIN_LEN + MAX_LEN) / 2;
@@ -49,7 +50,7 @@ public class FileInStreamTest {
 
   @BeforeClass
   public static final void beforeClass() throws IOException {
-    sLocalTachyonCluster = new LocalTachyonCluster(10000, 1000, BLOCK_SIZE);
+    sLocalTachyonCluster = new LocalTachyonCluster(10000, 1000, BLOCK_SIZE, PAGE_SIZE);
     sLocalTachyonCluster.start();
     sTfs = sLocalTachyonCluster.getClient();
   }

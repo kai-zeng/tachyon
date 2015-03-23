@@ -653,33 +653,25 @@ public class TachyonFS extends AbstractTachyonFS {
   }
 
   /**
-   * Get block's temporary path from worker with initial space allocated.
+   * Get block's temporary directory from worker with initial space allocated.
    * 
    * @param blockId the id of the block
-   * @param initialBytes the initial bytes allocated for the block file
-   * @return the temporary path of the block file
+   * @param initialBytes the initial bytes allocated for the block
+   * @return the temporary path of the block directory
    * @throws IOException
    */
   public synchronized String getLocalBlockTemporaryPath(long blockId, long initialBytes)
       throws IOException {
     String blockPath = mWorkerClient.requestBlockLocation(blockId, initialBytes);
-
-    File localTempFolder;
-    try {
-      localTempFolder = new File(CommonUtils.getParent(blockPath));
-    } catch (InvalidPathException e) {
-      throw new IOException(e);
-    }
-
-    if (!localTempFolder.exists()) {
-      if (localTempFolder.mkdirs()) {
-        CommonUtils.changeLocalFileToFullPermission(localTempFolder.getAbsolutePath());
-        LOG.info("Folder {} was created!", localTempFolder);
+    File blockDir = new File(blockPath);
+    if (!blockDir.exists()) {
+      if (blockDir.mkdirs()) {
+        CommonUtils.changeLocalFileToFullPermission(blockDir.getAbsolutePath());
+        LOG.info("Folder {} was created!", blockDir);
       } else {
-        throw new IOException("Failed to create folder " + localTempFolder);
+        throw new IOException("Failed to create folder " + blockDir);
       }
     }
-
     return blockPath;
   }
 

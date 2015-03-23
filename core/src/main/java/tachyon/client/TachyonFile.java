@@ -37,6 +37,7 @@ import tachyon.thrift.ClientBlockInfo;
 import tachyon.thrift.ClientFileInfo;
 import tachyon.thrift.NetAddress;
 import tachyon.thrift.WorkerInfo;
+import tachyon.worker.BlockHandler;
 
 /**
  * Tachyon File.
@@ -176,24 +177,24 @@ public class TachyonFile implements Comparable<TachyonFile> {
   }
 
   /**
-   * Returns the local filename for the block if that file exists on the local file system. This is
-   * an alpha power-api feature for applications that want short-circuit-read files directly. There
-   * is no guarantee that the file still exists after this call returns, as Tachyon may evict blocks
-   * from memory at any time.
+   * Returns the local directory path for the block if that file exists on the local file system.
+   * This is an alpha power-api feature for applications that want short-circuit-read files
+   * directly. There is no guarantee that the file still exists after this call returns, as Tachyon
+   * may evict blocks from memory at any time.
    * 
    * @param blockIndex The index of the block in the file.
-   * @return filename on local file system or null if file not present on local file system.
+   * @return directory on local file system or null if file not present on local file system.
    * @throws IOException
    */
-  public String getLocalFilename(int blockIndex) throws IOException {
+  public String getLocalDirectory(int blockIndex) throws IOException {
     ClientBlockInfo blockInfo = getClientBlockInfo(blockIndex);
     long blockId = blockInfo.getBlockId();
     int blockLockId = mTachyonFS.getBlockLockId();
-    String filename = mTachyonFS.lockBlock(blockId, blockLockId);
-    if (filename != null) {
+    String dirname = mTachyonFS.lockBlock(blockId, blockLockId);
+    if (dirname != null) {
       mTachyonFS.unlockBlock(blockId, blockLockId);
     }
-    return filename;
+    return dirname;
   }
 
   /**
@@ -404,41 +405,14 @@ public class TachyonFile implements Comparable<TachyonFile> {
     long blockId = info.blockId;
 
     int blockLockId = mTachyonFS.getBlockLockId();
-    String localFileName = mTachyonFS.lockBlock(blockId, blockLockId);
+    String localBlockDir = mTachyonFS.lockBlock(blockId, blockLockId);
 
-    if (localFileName != null) {
-      Closer closer = Closer.create();
+    if (localBlockDir != null) {
+      BlockHandler bh = BlockHandler.get(localBlockDir);
       try {
-        RandomAccessFile localFile = closer.register(new RandomAccessFile(localFileName, "r"));
-
-        long fileLength = localFile.length();
-        String error = null;
-        if (offset > fileLength) {
-          error = String.format("Offset(%d) is larger than file length(%d)", offset, fileLength);
-        }
-        if (error == null && len != -1 && offset + len > fileLength) {
-          error =
-              String.format("Offset(%d) plus length(%d) is larger than file length(%d)", offset,
-                  len, fileLength);
-        }
-        if (error != null) {
-          throw new IOException(error);
-        }
-
-        if (len == -1) {
-          len = fileLength - offset;
-        }
-
-        FileChannel localFileChannel = closer.register(localFile.getChannel());
-        final ByteBuffer buf = localFileChannel.map(FileChannel.MapMode.READ_ONLY, offset, len);
-        mTachyonFS.accessLocalBlock(blockId);
-        return new TachyonByteBuffer(mTachyonFS, buf, blockId, blockLockId);
-      } catch (FileNotFoundException e) {
-        LOG.info(localFileName + " is not on local disk.");
-      } catch (IOException e) {
-        LOG.warn("Failed to read local file " + localFileName + " because:", e);
+        return new TachyonByteBuffer(mTachyonFS, bh.read(offset, len), blockId, blockLockId);
       } finally {
-        closer.close();
+        bh.close();
       }
     }
 

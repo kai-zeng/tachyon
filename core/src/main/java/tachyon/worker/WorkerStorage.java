@@ -15,12 +15,15 @@
 
 package tachyon.worker;
 
+import java.io.File;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
-import java.util.Arrays;
+import java.nio.channels.Channels;
+import java.nio.channels.WritableByteChannel;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
@@ -29,8 +32,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
-import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -61,6 +62,7 @@ import tachyon.thrift.NetAddress;
 import tachyon.thrift.OutOfSpaceException;
 import tachyon.thrift.SuspectedFileSizeException;
 import tachyon.util.CommonUtils;
+import tachyon.util.PageUtils;
 import tachyon.util.ThreadFactoryUtils;
 import tachyon.worker.hierarchy.StorageDir;
 import tachyon.worker.hierarchy.StorageTier;
@@ -427,7 +429,7 @@ public class WorkerStorage {
    * @throws BlockInfoException
    */
   private void addFoundBlocks() throws IOException, BlockInfoException {
-    mUfsOrphansFolder = mUfsWorkerFolder + "/orphans";
+    mUfsOrphansFolder = CommonUtils.concat(mUfsWorkerFolder, "orphans");
     if (!mUfs.exists(mUfsOrphansFolder)) {
       mUfs.mkdirs(mUfsOrphansFolder, true);
     }
@@ -889,9 +891,9 @@ public class WorkerStorage {
   }
 
   /**
-   * Get temporary file path for some block, it is used to choose appropriate StorageDir for some
-   * block file with specified initial size.
-   *
+   * Get temporary directory path for some block, it is used to choose appropriate StorageDir for
+   * some block file with specified initial size.
+   * 
    * @param userId the id of the user who wants to write the file
    * @param blockId the id of the block
    * @param initialBytes the initial size allocated for the block
@@ -915,7 +917,7 @@ public class WorkerStorage {
     mUserIdToTempBlockIds.put(userId, blockId);
     storageDir.updateTempBlockAllocatedBytes(userId, blockId, initialBytes);
 
-    return storageDir.getUserTempFilePath(userId, blockId);
+    return storageDir.getUserTempBlockPath(userId, blockId).toString();
   }
 
   /**
@@ -1008,20 +1010,27 @@ public class WorkerStorage {
    * later. Its cleanup only happens while formating the mTachyonFS.
    */
   private void swapoutOrphanBlocks(StorageDir storageDir, long blockId) throws IOException {
-    ByteBuffer buf = storageDir.getBlockData(blockId, 0, -1);
-    String ufsOrphanBlock = CommonUtils.concat(mUfsOrphansFolder, blockId);
-    OutputStream os = mUfs.create(ufsOrphanBlock);
-    final int bulkSize = Constants.KB * 64;
-    byte[] bulk = new byte[bulkSize];
-    try {
-      for (int k = 0; k < (buf.limit() + bulkSize - 1) / bulkSize; k ++) {
-        int len = bulkSize < buf.remaining() ? bulkSize : buf.remaining();
-        buf.get(bulk, 0, len);
-        os.write(bulk, 0, len);
+    BlockHandler bh = storageDir.getBlockHandler(blockId);
+    String orphanBlockDirPath = CommonUtils.concat(mUfsOrphansFolder, blockId);
+    mUfs.mkdirs(orphanBlockDirPath, true);
+    // Copy over each file in blockDirPath to the UFS
+    for (int pageId : bh.getPageIds()) {
+      String orphanPagePath =
+          CommonUtils.concat(orphanBlockDirPath, PageUtils.getPageFilename(pageId));
+      OutputStream os = mUfs.create(orphanPagePath);
+      WritableByteChannel outputChannel = Channels.newChannel(os);
+      ByteBuffer readBuffer = null;
+      try {
+        readBuffer = bh.readPage(pageId, 0, -1);
+        outputChannel.write(readBuffer);
+      } finally {
+        outputChannel.close();
+        os.close();
+        if (readBuffer != null) {
+          CommonUtils.cleanDirectBuffer(readBuffer);
+          readBuffer = null;
+        }
       }
-    } finally {
-      os.close();
-      CommonUtils.cleanDirectBuffer(buf);
     }
   }
 
