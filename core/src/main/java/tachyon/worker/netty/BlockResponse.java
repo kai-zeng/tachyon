@@ -16,6 +16,7 @@
 package tachyon.worker.netty;
 
 import java.nio.ByteBuffer;
+import java.nio.channels.ByteChannel;
 import java.nio.channels.FileChannel;
 import java.util.List;
 
@@ -28,7 +29,9 @@ import io.netty.handler.codec.MessageToMessageEncoder;
 import com.google.common.primitives.Longs;
 import com.google.common.primitives.Shorts;
 
+import tachyon.conf.UserConf;
 import tachyon.conf.WorkerConf;
+import tachyon.util.PageUtils;
 import tachyon.worker.BlockHandler;
 import tachyon.worker.nio.DataServerMessage;
 
@@ -66,12 +69,24 @@ public final class BlockResponse {
             handler.close();
             break;
           case TRANSFER:
-            if (handler.getChannel() instanceof FileChannel) {
-              out.add(new DefaultFileRegion((FileChannel) handler.getChannel(), msg.getOffset(),
-                  msg.getLength()));
-            } else {
-              handler.close();
-              throw new Exception("Only FileChannel is supported!");
+            // We try to add a channel for each page
+            long bytesProcessed = 0;
+            for (int pageId = PageUtils.getPageId(msg.getOffset()); pageId < PageUtils
+                .getPageId(msg.getOffset() + msg.getLength() - 1); pageId ++) {
+              long pageOffset =
+                  (msg.getOffset() + bytesProcessed) - PageUtils.getPageOffset(pageId);
+              long bytesToRead =
+                  Math.min(UserConf.get().PAGE_SIZE_BYTE - pageOffset, msg.getLength()
+                      - bytesProcessed);
+              ByteChannel channel = handler.getChannel(pageOffset, bytesToRead);
+              bytesProcessed += bytesToRead;
+              if (channel instanceof FileChannel) {
+                out.add(new DefaultFileRegion((FileChannel) channel, msg.getOffset(), msg
+                    .getLength()));
+              } else {
+                handler.close();
+                throw new Exception("Only FileChannel is supported!");
+              }
             }
             break;
           default:
