@@ -109,7 +109,7 @@ public class WorkerServiceHandlerTest {
       throws IOException, InvalidPathException {
     UnderFileSystem.get(filename).mkdirs(CommonUtils.getParent(filename), true);
     BlockHandler handler = BlockHandler.get(filename);
-    handler.append(0, TestUtils.getIncreasingByteArray(fileLen), 0, fileLen);
+    handler.append(TestUtils.getIncreasingByteArray(fileLen), 0, fileLen);
     handler.close();
   }
 

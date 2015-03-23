@@ -198,7 +198,7 @@ public class StorageTier {
    */
   public void initialize() throws IOException {
     for (StorageDir dir : mDirs) {
-      dir.initailize();
+      dir.initialize();
     }
   }
 
@@ -217,7 +217,6 @@ public class StorageTier {
    * @param userId the id of the user
    * @param requestBytes requested space in bytes
    * @param pinList list of pinned files
-   * @param removedBlockIds list of blocks which are removed from Tachyon
    * @return the StorageDir assigned.
    * @throws IOException
    */
@@ -233,7 +232,6 @@ public class StorageTier {
    * @param userId id of the user
    * @param requestBytes size to request in bytes
    * @param pinList list of pinned files
-   * @param removedBlockIds list of blocks which are removed from Tachyon
    * @return true if allocate successfully, false otherwise.
    * @throws IOException
    */
@@ -254,7 +252,6 @@ public class StorageTier {
    * @param userId id of the user
    * @param requestSizeBytes size to request in bytes
    * @param pinList list of pinned files
-   * @param removedBlockIds list of blocks which are removed from Tachyon
    * @return the StorageDir assigned.
    * @throws IOException
    */

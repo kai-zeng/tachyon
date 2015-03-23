@@ -69,11 +69,12 @@ public class StorageDirTest {
   private void createBlockFile(StorageDir dir, long blockId, int blockSize) throws IOException {
     byte[] buf = TestUtils.getIncreasingByteArray(blockSize);
     BlockHandler bhSrc =
-        BlockHandler.get(CommonUtils.concat(dir.getUserTempFilePath(USER_ID, blockId)));
+        BlockHandler.get(CommonUtils.concat(dir.getUserTempBlockPath(USER_ID, blockId)
+            .toString()));
     dir.requestSpace(USER_ID, blockSize);
     dir.updateTempBlockAllocatedBytes(USER_ID, blockId, blockSize);
     try {
-      bhSrc.append(0, ByteBuffer.wrap(buf));
+      bhSrc.append(ByteBuffer.wrap(buf));
     } finally {
       bhSrc.close();
     }
@@ -94,10 +95,10 @@ public class StorageDirTest {
   }
 
   private void initializeStorageDir(StorageDir dir, long userId) throws IOException {
-    dir.initailize();
+    dir.initialize();
     UnderFileSystem ufs = dir.getUfs();
-    ufs.mkdirs(dir.getUserTempPath(userId), true);
-    CommonUtils.changeLocalFileToFullPermission(dir.getUserTempPath(userId));
+    ufs.mkdirs(dir.getUserTempPath(userId).toString(), true);
+    CommonUtils.changeLocalFileToFullPermission(dir.getUserTempPath(userId).toString());
   }
 
   @Test
