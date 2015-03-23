@@ -34,8 +34,9 @@ public class PageUtils {
    * @param blockLength the number of bytes in the block
    * @return the number of pages that the block is split into
    */
-  public static long getNumPages(long blockLength) {
-    return (blockLength + UserConf.get().PAGE_SIZE_BYTE - 1) / UserConf.get().PAGE_SIZE_BYTE;
+  public static int getNumPages(long blockLength) {
+    return (int) ((blockLength + UserConf.get().PAGE_SIZE_BYTE - 1)
+        / UserConf.get().PAGE_SIZE_BYTE);
   }
 
   /**
@@ -48,10 +49,10 @@ public class PageUtils {
    * @param blockLength the number of bytes in the block
    * @return a list of all pages in the block
    */
-  public static List<Long> generateAllPages(long blockLength) {
-    List<Long> ret = new ArrayList<Long>();
-    long numPages = getNumPages(blockLength);
-    for (long i = 0; i < numPages; i ++) {
+  public static List<Integer> generateAllPages(long blockLength) {
+    List<Integer> ret = new ArrayList<Integer>();
+    int numPages = getNumPages(blockLength);
+    for (int i = 0; i < numPages; i ++) {
       ret.add(i);
     }
     return ret;
@@ -67,5 +68,51 @@ public class PageUtils {
   public static String getWorkerDataFolder() {
     String pageString = "pagesize_" + UserConf.get().PAGE_SIZE_BYTE;
     return CommonUtils.concat(WorkerConf.get().DATA_FOLDER, pageString);
+  }
+
+  /* Gets the file name of the page with the given id
+   *
+   * @param id the id of the page
+   * @return the file name for the page
+   */
+  public static String getPageFilename(int pageId) {
+    return String.valueOf(pageId);
+  }
+
+  /**
+   * Gets the id of the page containing the given block offset
+   *
+   * @param offset the offset in bytes from the block
+   * @return page id containing the offset
+   */
+  public static int getPageId(long offset) {
+    return (int) (offset / UserConf.get().PAGE_SIZE_BYTE);
+  }
+
+  /**
+   * Gets the byte offset of the page in the block
+   *
+   * @param pageId the id of the page
+   * @return the byte offset
+   */
+  public static long getPageOffset(int pageId) {
+    return pageId * UserConf.get().PAGE_SIZE_BYTE;
+  }
+
+  /**
+   * Returns a list of page ids spanning the given offset and length
+   *
+   * @param offset the offset in bytes from the block
+   * @param length the length of the range of bytes
+   * @return a list of page ids covering the given range
+   */
+  public static List<Integer> getPageIdsOverRange(long offset, long length) {
+    int startId = getPageId(offset);
+    int endId = getPageId(offset + length - 1);
+    List<Integer> ret = new ArrayList<Integer>((int) (endId - startId + 1));
+    for (int i = startId; i <= endId; i ++) {
+      ret.add(i);
+    }
+    return ret;
   }
 }

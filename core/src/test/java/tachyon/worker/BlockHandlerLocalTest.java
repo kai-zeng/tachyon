@@ -17,6 +17,7 @@ package tachyon.worker;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 
+import io.netty.buffer.ByteBuf;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
@@ -28,6 +29,7 @@ import tachyon.client.TachyonFS;
 import tachyon.client.TachyonFile;
 import tachyon.client.WriteType;
 import tachyon.master.LocalTachyonCluster;
+import tachyon.util.PageUtils;
 
 /**
  * Unit tests for <code>tachyon.client.BlockHandlerLocal</code>.
@@ -40,11 +42,13 @@ public class BlockHandlerLocalTest {
   public static final void afterClass() throws Exception {
     mLocalTachyonCluster.stop();
     System.clearProperty("tachyon.user.quota.unit.bytes");
+    System.clearProperty("tachyon.user.page.size.byte");
   }
 
   @BeforeClass
   public static final void beforeClass() throws IOException {
     System.setProperty("tachyon.user.quota.unit.bytes", "1000");
+    System.setProperty("tachyon.user.page.size.byte", "20");
     mLocalTachyonCluster = new LocalTachyonCluster(10000);
     mLocalTachyonCluster.start();
     mTfs = mLocalTachyonCluster.getClient();
@@ -54,13 +58,14 @@ public class BlockHandlerLocalTest {
   public void directByteBufferWriteTest() throws IOException {
     ByteBuffer buf = ByteBuffer.allocateDirect(100);
     buf.put(TestUtils.getIncreasingByteArray(100));
+    buf.position(0);
 
     int fileId = mTfs.createFile(new TachyonURI(TestUtils.uniqPath()));
     long blockId = mTfs.getBlockId(fileId, 0);
-    String filename = mTfs.getLocalBlockTemporaryPath(blockId, 100);
-    BlockHandler handler = BlockHandler.get(filename);
+    String blockdir = mTfs.getLocalBlockTemporaryPath(blockId, 100);
+    BlockHandler handler = BlockHandler.get(blockdir);
     try {
-      handler.append(0, buf);
+      handler.append(buf);
       mTfs.cacheBlock(blockId);
       TachyonFile file = mTfs.getFile(fileId);
       long fileLen = file.length();
@@ -79,7 +84,7 @@ public class BlockHandlerLocalTest {
     BlockHandler handler = BlockHandler.get(filename);
     byte[] buf = TestUtils.getIncreasingByteArray(100);
     try {
-      handler.append(0, ByteBuffer.wrap(buf));
+      handler.append(ByteBuffer.wrap(buf));
       mTfs.cacheBlock(blockId);
       TachyonFile file = mTfs.getFile(fileId);
       long fileLen = file.length();
@@ -94,8 +99,8 @@ public class BlockHandlerLocalTest {
   public void readExceptionTest() throws IOException {
     int fileId = TestUtils.createByteFile(mTfs, TestUtils.uniqPath(), WriteType.MUST_CACHE, 100);
     TachyonFile file = mTfs.getFile(fileId);
-    String filename = file.getLocalFilename(0);
-    BlockHandler handler = BlockHandler.get(filename);
+    String blockDir = file.getLocalDirectory(0);
+    BlockHandler handler = BlockHandler.get(blockDir);
     try {
       Exception exception = null;
       try {
@@ -122,8 +127,8 @@ public class BlockHandlerLocalTest {
   public void readTest() throws IOException {
     int fileId = TestUtils.createByteFile(mTfs, TestUtils.uniqPath(), WriteType.MUST_CACHE, 100);
     TachyonFile file = mTfs.getFile(fileId);
-    String filename = file.getLocalFilename(0);
-    BlockHandler handler = BlockHandler.get(filename);
+    String blockDir = file.getLocalDirectory(0);
+    BlockHandler handler = BlockHandler.get(blockDir);
     try {
       ByteBuffer buf = handler.read(0, 100);
       Assert.assertEquals(TestUtils.getIncreasingByteBuffer(100), buf);
@@ -133,5 +138,22 @@ public class BlockHandlerLocalTest {
       handler.close();
     }
     return;
+  }
+
+  @Test
+  public void readPageTest() throws IOException {
+    int fileId = TestUtils.createByteFile(mTfs, TestUtils.uniqPath(), WriteType.MUST_CACHE, 100);
+    TachyonFile file = mTfs.getFile(fileId);
+    String blockDir = file.getLocalDirectory(0);
+    BlockHandler handler = BlockHandler.get(blockDir);
+    try {
+      for (int pageId : handler.getPageIds()) {
+        ByteBuffer buf = handler.readPage(pageId, 0, -1);
+        Assert.assertEquals(TestUtils.getIncreasingByteBuffer(
+            (int) PageUtils.getPageOffset(pageId), 20), buf);
+      }
+    } finally {
+      handler.close();
+    }
   }
 }

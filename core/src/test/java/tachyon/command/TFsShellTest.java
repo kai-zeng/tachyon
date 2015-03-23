@@ -70,7 +70,7 @@ public class TFsShellTest {
 
   @Before
   public final void before() throws IOException {
-    System.setProperty("tachyon.user.quota.unit.bytes", "1000");
+    System.setProperty("tachyon.user.quota.unit.bytes", String.valueOf(Constants.KB));
     mLocalTachyonCluster = new LocalTachyonCluster(SIZE_BYTES);
     mLocalTachyonCluster.start();
     mTfs = mLocalTachyonCluster.getClient();

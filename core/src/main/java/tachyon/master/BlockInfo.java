@@ -254,7 +254,7 @@ public class BlockInfo {
     sb.append(", mOffset: ").append(mOffset);
     sb.append(", mLength: ").append(mLength);
     sb.append(", mLocations: ").append(mLocations);
-    sb.append(", mCachedPages: ").append(mWorkerDirs).append(")");
+    sb.append(", mWorkerDirs: ").append(mWorkerDirs).append(")");
     return sb.toString();
   }
 }
