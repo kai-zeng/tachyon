@@ -266,22 +266,15 @@ public final class StorageDir {
       LOG.error("Block file doesn't exist! blockId:{}", blockId);
       return false;
     }
-    boolean copySuccess = false;
-    Closer closer = Closer.create();
-    ByteBuffer buffer = null;
+    BlockHandler bh = getBlockHandler(blockId);
+    TachyonURI dstPath = dstDir.getBlockDirPath(blockId);
     try {
-      BlockHandler bhSrc = closer.register(getBlockHandler(blockId));
-      BlockHandler bhDst = closer.register(dstDir.getBlockHandler(blockId));
-      buffer = bhSrc.read(0, (int) size);
-      copySuccess = (bhDst.append(buffer) == size);
+      bh.copy(dstPath.toString());
+      dstDir.addBlockId(blockId, bh.getLength(), mLastBlockAccessTimeMs.get(blockId), true);
     } finally {
-      closer.close();
-      CommonUtils.cleanDirectBuffer(buffer);
+      bh.close();
     }
-    if (copySuccess) {
-      dstDir.addBlockId(blockId, size, mLastBlockAccessTimeMs.get(blockId), true);
-    }
-    return copySuccess;
+    return true;
   }
 
   /**
@@ -301,9 +294,11 @@ public final class StorageDir {
     String blockDir = getBlockDirPath(blockId).toString();
     // Should check lock status here 
     if (!isBlockLocked(blockId)) {
-      if (!mFs.delete(blockDir, true)) {
-        LOG.error("Failed to delete block directory! filename:{}", blockDir);
-        return false;
+      BlockHandler bh = getBlockHandler(blockId);
+      try {
+        bh.delete();
+      } finally {
+        bh.close();
       }
       deleteBlockId(blockId);
     } else {
