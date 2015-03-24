@@ -22,6 +22,7 @@ import java.nio.channels.ByteChannel;
 import java.util.List;
 
 import tachyon.TachyonURI;
+import tachyon.UnderFileSystem;
 
 /**
  * Base class for handling block I/O. Block handlers for different under file systems can be
@@ -130,4 +131,29 @@ public abstract class BlockHandler implements Closeable {
    * @return A list of page Ids
    */
   public abstract List<Integer> getPageIds();
+
+  /**
+   * Copies the block to the given block directory. The given directory should be in another
+   * StorageDir on the same worker. It is safe to concurrently copy two BlockHandlers to the same
+   * destination directory, regardless of how much data overlaps.
+   *
+   * @param path The destination directory of the block
+   */
+  public abstract void copy(String path) throws IOException;
+
+  /**
+   * Copies the block to the given UnderFS directory.
+   *
+   * @param underFS The UnderFS object that we are copying to
+   * @param path The destination directory of the block
+   */
+  public abstract void copyToUnderFS(UnderFileSystem underFS, String path) throws IOException;
+
+  /**
+   * Moves the block to the given block directory. The given directory should be in another
+   * StorageDir on the same worker. It is safe to concurrently move two BlockHandlers to the same
+   * destination directory, regardless of how much data overlaps. This will put the BlockHandler in
+   * the deleted state, so no other operations can be performed on it.
+   */
+  public abstract void move(String path) throws IOException;
 }

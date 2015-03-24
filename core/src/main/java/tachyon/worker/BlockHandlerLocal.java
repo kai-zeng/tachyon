@@ -17,11 +17,17 @@ package tachyon.worker;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 import java.nio.channels.ByteChannel;
+import java.nio.channels.Channels;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileChannel.MapMode;
+import java.nio.channels.WritableByteChannel;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -32,6 +38,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.io.Closer;
 
 import tachyon.Constants;
+import tachyon.UnderFileSystem;
 import tachyon.conf.UserConf;
 import tachyon.util.CommonUtils;
 import tachyon.util.PageUtils;
@@ -166,13 +173,14 @@ public final class BlockHandlerLocal extends BlockHandler {
 
   @Override
   public void close() throws IOException {
-    flush();
+    if (!mDeleted) {
+      flush();
+    }
     mCloser.close();
   }
 
   @Override
   public boolean delete() throws IOException {
-    checkPermission();
     mDeleted = true;
     // Delete all the files
     for (PageFile pf : mPageFiles) {
@@ -184,6 +192,7 @@ public final class BlockHandlerLocal extends BlockHandler {
 
   @Override
   public void flush() throws IOException {
+    checkDeleted();
     mBuffer.flip();
     while (mBuffer.hasRemaining()) {
       // If there are no pages, add a new one
@@ -288,9 +297,56 @@ public final class BlockHandlerLocal extends BlockHandler {
     return mPageFiles.get(pageId).getChannel().map(MapMode.READ_ONLY, offset, length);
   }
 
+  @Override
   public List<Integer> getPageIds() {
     // Right now we assume blocks are cached in their entirety, so we can simply return all the
     // pages
     return PageUtils.generateAllPages(mLength);
+  }
+
+  @Override
+  public void copy(String path) throws IOException {
+    File dstDir = new File(Preconditions.checkNotNull(path));
+    mBlockDir.mkdirs();
+    for (int pageId : getPageIds()) {
+      File srcFile = mPageFiles.get(pageId).getFile();
+      Files.copy(srcFile.toPath(), Paths.get(mBlockDir.getAbsolutePath(), srcFile.getName()),
+          StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.COPY_ATTRIBUTES);
+    }
+  }
+
+  @Override
+  public void copyToUnderFS(UnderFileSystem underFS, String path) throws IOException {
+    underFS.mkdirs(path, true);
+    // Copy over each file in blockDirPath to the UFS
+    for (int pageId : getPageIds()) {
+      File srcFile = mPageFiles.get(pageId).getFile();
+      String orphanPagePath =
+          CommonUtils.concat(path, srcFile.getName());
+      OutputStream os = underFS.create(orphanPagePath);
+      WritableByteChannel outputChannel = Channels.newChannel(os);
+      ByteBuffer pageBuf =
+          mPageFiles.get(pageId).getChannel().map(MapMode.READ_ONLY, 0, srcFile.length());
+      try {
+        outputChannel.write(pageBuf);
+      } finally {
+        outputChannel.close();
+        os.close();
+        CommonUtils.cleanDirectBuffer(pageBuf);
+      }
+    }
+  }
+
+  @Override
+  public void move(String path) throws IOException {
+    mDeleted = true;
+    File dstDir = new File(Preconditions.checkNotNull(path));
+    mBlockDir.mkdirs();
+    for (int pageId : getPageIds()) {
+      File srcFile = mPageFiles.get(pageId).getFile();
+      Files.move(srcFile.toPath(), Paths.get(mBlockDir.getAbsolutePath(), srcFile.getName()),
+          StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.COPY_ATTRIBUTES);
+    }
+    mBlockDir.delete();
   }
 }

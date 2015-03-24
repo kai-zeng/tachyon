@@ -912,25 +912,10 @@ public class WorkerStorage {
   private void swapoutOrphanBlocks(StorageDir storageDir, long blockId) throws IOException {
     BlockHandler bh = storageDir.getBlockHandler(blockId);
     String orphanBlockDirPath = CommonUtils.concat(mUfsOrphansFolder, blockId);
-    mUfs.mkdirs(orphanBlockDirPath, true);
-    // Copy over each file in blockDirPath to the UFS
-    for (int pageId : bh.getPageIds()) {
-      String orphanPagePath =
-          CommonUtils.concat(orphanBlockDirPath, PageUtils.getPageFilename(pageId));
-      OutputStream os = mUfs.create(orphanPagePath);
-      WritableByteChannel outputChannel = Channels.newChannel(os);
-      ByteBuffer readBuffer = null;
-      try {
-        readBuffer = bh.readPage(pageId, 0, -1);
-        outputChannel.write(readBuffer);
-      } finally {
-        outputChannel.close();
-        os.close();
-        if (readBuffer != null) {
-          CommonUtils.cleanDirectBuffer(readBuffer);
-          readBuffer = null;
-        }
-      }
+    try {
+      bh.copyToUnderFS(mUfs, orphanBlockDirPath);
+    } finally {
+      bh.close();
     }
   }
 
