@@ -296,8 +296,6 @@ public class WorkerStorage {
   private final ExecutorService mExecutorService;
   private long mCapacityBytes;
   private ArrayList<StorageTier> mStorageTiers;
-  private final BlockingQueue<Long> mRemovedBlockIdList = new ArrayBlockingQueue<Long>(
-      Constants.WORKER_BLOCKS_QUEUE_SIZE);
   /** Mapping from temporary block Information to StorageDir in which the block is */
   private final Map<Pair<Long, Long>, StorageDir> mTempBlockLocation = Collections
       .synchronizedMap(new HashMap<Pair<Long, Long>, StorageDir>());
@@ -574,7 +572,6 @@ public class WorkerStorage {
         }
       }
     }
-    mRemovedBlockIdList.add(blockId);
   }
 
   /**
@@ -726,14 +723,13 @@ public class WorkerStorage {
    * @throws IOException
    */
   public Command heartbeat() throws IOException {
-    List<Long> removedBlockIds = new ArrayList<Long>();
     Map<Long, List<Long>> addedBlockIds = new HashMap<Long, List<Long>>();
-
-    mRemovedBlockIdList.drainTo(removedBlockIds);
+    Map<Long, List<Long>> removedBlockIds = new HashMap<Long, List<Long>>();
 
     for (StorageTier storageTier : mStorageTiers) {
       for (StorageDir storageDir : storageTier.getStorageDirs()) {
         addedBlockIds.put(storageDir.getStorageDirId(), storageDir.getAddedBlockIdList());
+        removedBlockIds.put(storageDir.getStorageDirId(), storageDir.getRemovedBlockIdList());
       }
     }
     return mMasterClient.worker_heartbeat(mWorkerId, getUsedBytesOnTiers(), removedBlockIds,
@@ -942,23 +938,17 @@ public class WorkerStorage {
     }
 
     StorageDir dir = null;
-    List<Long> removedBlockIds = new ArrayList<Long>();
     try {
       if (dirCandidate == null) {
         // if StorageDir candidate is not set, request space from all available StorageDirs
-        dir = mStorageTiers.get(0).requestSpace(userId, requestBytes, pinList, removedBlockIds);
+        dir = mStorageTiers.get(0).requestSpace(userId, requestBytes, pinList);
       } else { // request space from the StorageDir specified
-        if (mStorageTiers.get(0).requestSpace(dirCandidate, userId, requestBytes, pinList,
-            removedBlockIds)) {
+        if (mStorageTiers.get(0).requestSpace(dirCandidate, userId, requestBytes, pinList)) {
           dir = dirCandidate;
         }
       }
     } catch (IOException e) {
       LOG.error(e.getMessage());
-    } finally {
-      if (removedBlockIds.size() > 0) {
-        mRemovedBlockIdList.addAll(removedBlockIds);
-      }
     }
 
     return dir;
