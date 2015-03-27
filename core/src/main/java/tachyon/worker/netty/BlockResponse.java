@@ -15,6 +15,7 @@
 
 package tachyon.worker.netty;
 
+import java.io.File;
 import java.nio.ByteBuffer;
 import java.nio.channels.ByteChannel;
 import java.nio.channels.FileChannel;
@@ -62,36 +63,21 @@ public final class BlockResponse {
       out.add(createHeader(ctx, msg));
       BlockHandler handler = msg.getHandler();
       if (handler != null) {
-        switch (WorkerConf.get().NETTY_FILE_TRANSFER_TYPE) {
-          case MAPPED:
-            ByteBuffer data = handler.read(msg.getOffset(), (int) msg.getLength());
-            out.add(Unpooled.wrappedBuffer(data));
-            handler.close();
-            break;
-          case TRANSFER:
-            // We try to add a channel for each page
-            long bytesProcessed = 0;
-            for (int pageId = PageUtils.getPageId(msg.getOffset()); pageId < PageUtils
-                .getPageId(msg.getOffset() + msg.getLength() - 1); pageId ++) {
-              long pageOffset =
-                  (msg.getOffset() + bytesProcessed) - PageUtils.getPageOffset(pageId);
-              long bytesToRead =
-                  Math.min(UserConf.get().PAGE_SIZE_BYTE - pageOffset, msg.getLength()
-                      - bytesProcessed);
-              ByteChannel channel = handler.getChannel(pageOffset, bytesToRead);
-              bytesProcessed += bytesToRead;
-              if (channel instanceof FileChannel) {
-                out.add(new DefaultFileRegion((FileChannel) channel, msg.getOffset(), msg
-                    .getLength()));
-              } else {
-                handler.close();
-                throw new Exception("Only FileChannel is supported!");
-              }
-            }
-            break;
-          default:
-            throw new AssertionError("Unknown file transfer type: "
-                + WorkerConf.get().NETTY_FILE_TRANSFER_TYPE);
+        try {
+          switch (WorkerConf.get().NETTY_FILE_TRANSFER_TYPE) {
+            case MAPPED:
+              ByteBuffer data = handler.read(msg.getOffset(), msg.getLength());
+              out.add(Unpooled.wrappedBuffer(data));
+              break;
+            case TRANSFER:
+              out.addAll(handler.getChannels(msg.getOffset(), msg.getLength()));
+              break;
+            default:
+              throw new AssertionError("Unknown file transfer type: "
+                  + WorkerConf.get().NETTY_FILE_TRANSFER_TYPE);
+          }
+        } finally {
+          handler.close();
         }
       }
     }

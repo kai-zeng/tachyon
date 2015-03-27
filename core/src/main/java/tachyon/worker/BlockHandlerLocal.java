@@ -219,15 +219,37 @@ public final class BlockHandlerLocal extends BlockHandler {
   }
 
   @Override
-  public ByteChannel getChannel(long offset, long length) throws IOException {
+  public List<ByteChannel> getChannels(long offset, long length) throws IOException {
     checkDeleted();
-    // If the offset,length range goes past the length of the file, or spans multiple pages,
-    // we return null
-    if (PageUtils.getPageId(offset + length) >= mPageFiles.size()
-        || PageUtils.getPageId(offset) != PageUtils.getPageId(offset + length - 1)) {
-      return null;
+    String error = null;
+    if (offset > getLength()) {
+      error = String.format("offset(%d) is larger than file length(%d)", offset, getLength());
+    } else if (length != -1 && offset + length > getLength()) {
+      error =
+          String.format("offset(%d) plus length(%d) is larger than file length(%d)", offset,
+              length, getLength());
     }
-    return mPageFiles.get(PageUtils.getPageId(offset)).getChannel();
+    if (error != null) {
+      throw new IOException(error);
+    }
+    if (length == -1) {
+      length = getLength() - offset;
+    }
+
+    List<ByteChannel> ret = new ArrayList<ByteChannel>();
+    long endPos = offset + length;
+    while (offset < endPos) {
+      // Read the minimum of till the end of the page or till the end of the specified range
+      int pageId = PageUtils.getPageId(offset);
+      long relativePos = offset - PageUtils.getPageOffset(pageId);
+      long bytesToRead = Math.min(UserConf.get().PAGE_SIZE_BYTE - relativePos, endPos - offset);
+      // Get the correct channel and seek to the correct starting position
+      FileChannel addChannel = mPageFiles.get(pageId).getChannel();
+      addChannel.position(relativePos);
+      ret.add(addChannel);
+      offset += bytesToRead;
+    }
+    return ret;
   }
 
   @Override
@@ -238,43 +260,24 @@ public final class BlockHandlerLocal extends BlockHandler {
 
   @Override
   public ByteBuffer read(long offset, long length) throws IOException {
-    checkDeleted();
-    long fileLength = getLength();
-    String error = null;
-    if (offset > fileLength) {
-      error = String.format("offset(%d) is larger than file length(%d)", offset, fileLength);
-    } else if (length != -1 && offset + length > fileLength) {
-      error =
-          String.format("offset(%d) plus length(%d) is larger than file length(%d)", offset,
-              length, fileLength);
-    }
-    if (error != null) {
-      throw new IOException(error);
-    }
+    List<ByteChannel> channels = getChannels(offset, length);
     if (length == -1) {
-      length = (int) (fileLength - offset);
+      length = getLength() - offset;
+    }
+    // If there is only one channel, we can simply return its mmapped byte buffer
+    if (channels.size() == 1) {
+      FileChannel chan = (FileChannel) channels.get(0);
+      return chan.map(MapMode.READ_ONLY, chan.position(), length);
     }
 
-    // If the offset-length range maps to exactly one file, we can simply run readPage
-    if (PageUtils.getPageId(offset) == PageUtils.getPageId(offset + length - 1)) {
-      int id = PageUtils.getPageId(offset);
-      long relativeOffset = offset - PageUtils.getPageOffset(id);
-      return readPage(id, relativeOffset, length);
-    }
     // Otherwise, we have to create a ByteBuffer large enough to hold the requested range and copy
     // the correct pages in.
     // TODO(manugoyal) make this more efficient (we might be able wrap multiple mmaped files into
     // one byte buffer, so we can avoid copying. One idea might be to create a wrapped Netty ByteBuf
     // out of multiple mapped buffers then convert that to an NIO buffer).
     ByteBuffer ret = ByteBuffer.allocate((int) length);
-    long bytesWritten = 0;
-    while (bytesWritten < length) {
-      int id = PageUtils.getPageId(offset + bytesWritten);
-      long relativeOffset = (offset + bytesWritten) - PageUtils.getPageOffset(id);
-      long bytesToRead =
-          Math.min(UserConf.get().PAGE_SIZE_BYTE - relativeOffset, length - bytesWritten);
-      ret.put(mPageFiles.get(id).getChannel().map(MapMode.READ_ONLY, relativeOffset, bytesToRead));
-      bytesWritten += bytesToRead;
+    for (ByteChannel channel : channels) {
+      channel.read(ret);
     }
     ret.flip();
     return ret;
