@@ -115,24 +115,6 @@ public abstract class BlockHandler implements Closeable {
   public abstract ByteBuffer read(long offset, long length) throws IOException;
 
   /**
-   * Reads the data from the given page
-   *
-   * @param pageId the id of the page to read
-   * @param offset the offset in bytes relative to the page
-   * @param length the number of bytes to read, -1 represent reading until the end of the page
-   * @return ByteBuffer containing the page data, or null if the page is not in the block directory
-   */
-  public abstract ByteBuffer readPage(int pageId, long offset, long length) throws IOException;
-
-  /**
-   * Return a list of page ids contained in the current block. Since blocks can be partially cached,
-   * these pages do not have to be contiguous
-   *
-   * @return A list of page Ids
-   */
-  public abstract List<Integer> getPageIds();
-
-  /**
    * Copies the block to the given block directory. The given directory should be in another
    * StorageDir on the same worker. It is safe to concurrently copy two BlockHandlers to the same
    * destination directory, regardless of how much data overlaps.
