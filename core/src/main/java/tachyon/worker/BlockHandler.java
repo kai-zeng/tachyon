@@ -87,14 +87,13 @@ public abstract class BlockHandler implements Closeable {
   public abstract void flush() throws IOException;
 
   /**
-   * Gets channel used to access block at a given offset and length. If there is no single
-   * ByteChannel that covers the given range of the block, it returns null.
+   * Gets a list of channels used to access block at a given offset and length.
    *
    * @param offset the offset into the block
-   * @param length the number of bytes the channel should span
+   * @param length the length of data to read, -1 represents reading the rest of the block
    * @return the channel bounded with the block file
    */
-  public abstract ByteChannel getChannel(long offset, long length) throws IOException;
+  public abstract List<ByteChannel> getChannels(long offset, long length) throws IOException;
 
   /**
    * Gets the length of the block
