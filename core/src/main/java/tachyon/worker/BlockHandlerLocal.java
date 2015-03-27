@@ -281,34 +281,10 @@ public final class BlockHandlerLocal extends BlockHandler {
   }
 
   @Override
-  public ByteBuffer readPage(int pageId, long offset, long length) throws IOException {
-    checkDeleted();
-    // We can directly map a file into a byte buffer and return that.
-    long fileLength = mPageFiles.get(pageId).getFile().length();
-    if (offset > fileLength) {
-      throw new IOException(String.format("offset(%d) is larger than file length(%d)", offset,
-          fileLength));
-    } else if (length != -1 && offset + length > fileLength) {
-      throw new IOException(String.format(
-          "offset(%d) plus length(%d) is larger than file length(%d)", offset, length, fileLength));
-    } else if (length == -1) {
-      length = fileLength - offset;
-    }
-    return mPageFiles.get(pageId).getChannel().map(MapMode.READ_ONLY, offset, length);
-  }
-
-  @Override
-  public List<Integer> getPageIds() {
-    // Right now we assume blocks are cached in their entirety, so we can simply return all the
-    // pages
-    return PageUtils.generateAllPages(mLength);
-  }
-
-  @Override
   public void copy(String path) throws IOException {
     File dstDir = new File(Preconditions.checkNotNull(path));
     mBlockDir.mkdirs();
-    for (int pageId : getPageIds()) {
+    for (int pageId = 0; pageId < PageUtils.getNumPages(mLength); pageId ++) {
       File srcFile = mPageFiles.get(pageId).getFile();
       Files.copy(srcFile.toPath(), Paths.get(mBlockDir.getAbsolutePath(), srcFile.getName()),
           StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.COPY_ATTRIBUTES);
@@ -319,7 +295,7 @@ public final class BlockHandlerLocal extends BlockHandler {
   public void copyToUnderFS(UnderFileSystem underFS, String path) throws IOException {
     underFS.mkdirs(path, true);
     // Copy over each file in blockDirPath to the UFS
-    for (int pageId : getPageIds()) {
+    for (int pageId = 0; pageId < PageUtils.getNumPages(mLength); pageId ++) {
       File srcFile = mPageFiles.get(pageId).getFile();
       String orphanPagePath =
           CommonUtils.concat(path, srcFile.getName());
@@ -342,7 +318,7 @@ public final class BlockHandlerLocal extends BlockHandler {
     mDeleted = true;
     File dstDir = new File(Preconditions.checkNotNull(path));
     mBlockDir.mkdirs();
-    for (int pageId : getPageIds()) {
+    for (int pageId = 0; pageId < PageUtils.getNumPages(mLength); pageId ++) {
       File srcFile = mPageFiles.get(pageId).getFile();
       Files.move(srcFile.toPath(), Paths.get(mBlockDir.getAbsolutePath(), srcFile.getName()),
           StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.COPY_ATTRIBUTES);
