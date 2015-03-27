@@ -54,7 +54,7 @@ public class AllocateStrategyTest {
   private void createBlockFile(StorageDir dir, long blockId, int blockSize) throws IOException {
     byte[] buf = TestUtils.getIncreasingByteArray(blockSize);
     BlockHandler bhSrc =
-        BlockHandler.get(dir.getUserTempBlockPath(USER_ID, blockId).toString());
+        BlockHandler.get(new TachyonConf(), dir.getUserTempBlockPath(USER_ID, blockId).toString());
     dir.requestSpace(USER_ID, blockSize);
     dir.updateTempBlockAllocatedBytes(USER_ID, blockId, blockSize);
     try {

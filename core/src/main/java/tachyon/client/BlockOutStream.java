@@ -100,10 +100,10 @@ public class BlockOutStream extends OutStream {
     }
 
     mBlockDir = mTachyonFS.getLocalBlockTemporaryPath(mBlockId, initialBytes);
-    mBlockHandler = BlockHandler.get(mBlockDir);
+    mBlockHandler = BlockHandler.get(mTachyonConf, mBlockDir);
     mBuffer =
-        ByteBuffer
-            .allocate((int) (mTachyonConf.getBytes(Constants.USER_FILE_BUFFER_BYTES, Constants.MB) + 4));
+        ByteBuffer.allocate((int) (mTachyonConf.getBytes(Constants.USER_FILE_BUFFER_BYTES,
+            Constants.MB) + 4));
     mAvailableBytes += initialBytes;
     LOG.info(mBlockDir + " was created!");
   }

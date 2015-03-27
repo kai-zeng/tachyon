@@ -110,7 +110,10 @@ public final class StorageDir {
     mStorageDirId = storageDirId;
     mDirPath = new TachyonURI(dirPath);
     mSpaceCounter = new SpaceCounter(capacityBytes);
-    mDataPath = mDirPath.join(dataFolder);
+    
+    long pageSize =
+        tachyonConf.getBytes(Constants.PAGE_SIZE_BYTE, Constants.DEFAULT_PAGE_SIZE_BYTE);
+    mDataPath = mDirPath.join(dataFolder).join("pagesize_" + pageSize);
     mUserTempPath = mDirPath.join(userTempFolder);
     mConf = conf;
     mFs = UnderFileSystem.get(dirPath, conf, mTachyonConf);
@@ -172,16 +175,17 @@ public final class StorageDir {
   public boolean cacheBlock(long userId, long blockId) throws IOException {
     String srcPath = getUserTempBlockPath(userId, blockId).toString();
     String dstPath = getBlockDirPath(blockId).toString();
-    Long allocatedBytes = mTempBlockAllocatedBytes.remove(new Pair<Long, Long>(userId, blockId));
-    if (!mFs.exists(srcPath) || allocatedBytes == null) {
+    Pair<Long, Long> blockInfo = new Pair<Long, Long>(userId, blockId);
+    if (!mFs.exists(srcPath) || !mTempBlockAllocatedBytes.containsKey(blockInfo)) {
       cancelBlock(userId, blockId);
-      throw new IOException("Block file doesn't exist! blockId:" + blockId + " " + srcPath);
+      throw new IOException("Block path doesn't exist! blockId:" + blockId + " " + srcPath);
     }
-    long blockSize = BlockHandler.get(srcPath).getLength();
+    long blockSize = BlockHandler.get(mTachyonConf, srcPath).getLength();
     if (blockSize < 0) {
       cancelBlock(userId, blockId);
       throw new IOException("Negative block size! blockId:" + blockId);
     }
+    long allocatedBytes = mTempBlockAllocatedBytes.remove(blockInfo);
     returnSpace(userId, allocatedBytes - blockSize);
     if (mFs.exists(dstPath)) {
       // The rename won't do anything since the block is already cached
@@ -398,7 +402,7 @@ public final class StorageDir {
   public BlockHandler getBlockHandler(long blockId) throws IOException {
     String filePath = getBlockDirPath(blockId).toString();
     try {
-      return BlockHandler.get(filePath);
+      return BlockHandler.get(mTachyonConf, filePath);
     } catch (IllegalArgumentException e) {
       throw new IOException(e.getMessage());
     }

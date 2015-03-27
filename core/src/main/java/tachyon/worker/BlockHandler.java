@@ -23,6 +23,7 @@ import java.util.List;
 
 import tachyon.TachyonURI;
 import tachyon.UnderFileSystem;
+import tachyon.conf.TachyonConf;
 
 /**
  * Base class for handling block I/O. Block handlers for different under file systems can be
@@ -34,15 +35,17 @@ public abstract class BlockHandler implements Closeable {
 
   /**
    * Create a block handler according to path scheme
-   * 
+   *
+   * @param tachyonConf the tachyon configuration
    * @param path the block path
    * @return the handler of the block
    * @throws IOException
    * @throws IllegalArgumentException
    */
-  public static BlockHandler get(String path) throws IOException, IllegalArgumentException {
+  public static BlockHandler get(TachyonConf tachyonConf, String path) throws IOException,
+      IllegalArgumentException {
     if (path.startsWith(TachyonURI.SEPARATOR) || path.startsWith("file://")) {
-      return new BlockHandlerLocal(path);
+      return new BlockHandlerLocal(tachyonConf, path);
     }
     throw new IllegalArgumentException("Unsupported block file path: " + path);
   }
@@ -87,14 +90,13 @@ public abstract class BlockHandler implements Closeable {
   public abstract void flush() throws IOException;
 
   /**
-   * Gets channel used to access block at a given offset and length. If there is no single
-   * ByteChannel that covers the given range of the block, it returns null.
+   * Gets a list of channels used to access block at a given offset and length.
    *
    * @param offset the offset into the block
-   * @param length the number of bytes the channel should span
+   * @param length the length of data to read, -1 represents reading the rest of the block
    * @return the channel bounded with the block file
    */
-  public abstract ByteChannel getChannel(long offset, long length) throws IOException;
+  public abstract List<ByteChannel> getChannels(long offset, long length) throws IOException;
 
   /**
    * Gets the length of the block

@@ -408,7 +408,7 @@ public class TachyonFile implements Comparable<TachyonFile> {
     String localBlockDir = mTachyonFS.lockBlock(blockId, blockLockId);
 
     if (localBlockDir != null) {
-      BlockHandler bh = BlockHandler.get(localBlockDir);
+      BlockHandler bh = BlockHandler.get(mTachyonConf, localBlockDir);
       try {
         return new TachyonByteBuffer(mTachyonFS, bh.read(offset, len), blockId, blockLockId);
       } finally {

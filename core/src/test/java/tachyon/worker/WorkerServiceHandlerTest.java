@@ -112,7 +112,7 @@ public class WorkerServiceHandlerTest {
   private void createBlockFile(String filename, int fileLen)
       throws IOException, InvalidPathException {
     UnderFileSystem.get(filename, mMasterTachyonConf).mkdirs(CommonUtils.getParent(filename), true);
-    BlockHandler handler = BlockHandler.get(filename);
+    BlockHandler handler = BlockHandler.get(mWorkerTachyonConf, filename);
     handler.append(TestUtils.getIncreasingByteArray(fileLen), 0, fileLen);
     handler.close();
   }

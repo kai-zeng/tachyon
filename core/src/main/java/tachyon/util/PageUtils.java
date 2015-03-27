@@ -28,11 +28,13 @@ import tachyon.conf.TachyonConf;
  */
 public class PageUtils {
   private final long mPageSize;
-  private final String mWorkerDataFolder;
 
   public PageUtils(TachyonConf tachyonConf) {
     mPageSize = tachyonConf.getLong(Constants.PAGE_SIZE_BYTE, Constants.DEFAULT_PAGE_SIZE_BYTE);
-    mWorkerDataFolder = tachyonConf.get(Constants.WORKER_DATA_FOLDER, Constants.DEFAULT_DATA_FOLDER);
+  }
+
+  public long getPageSize() {
+    return mPageSize;
   }
 
   /**
@@ -62,17 +64,6 @@ public class PageUtils {
       ret.add(i);
     }
     return ret;
-  }
-
-  /**
-   * Gets the data folder for the worker. To avoid storing pages with different sizes in the same
-   * directory, we put all the pages in a sub-directory according to the page size, so now the
-   * worker data folder depends on the page size.
-   * 
-   * @return the data folder
-   */
-  public String getWorkerDataFolder() {
-    return CommonUtils.concat(mWorkerDataFolder, "pagesize_" + mPageSize);
   }
 
   /* Gets the file name of the page with the given id

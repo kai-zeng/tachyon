@@ -16,21 +16,23 @@ package tachyon.worker;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.channels.ByteChannel;
+import java.util.ArrayList;
+import java.util.List;
 
-import io.netty.buffer.ByteBuf;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
 import tachyon.Constants;
+import tachyon.Pair;
 import tachyon.TachyonURI;
 import tachyon.TestUtils;
 import tachyon.client.TachyonFS;
 import tachyon.client.TachyonFile;
 import tachyon.client.WriteType;
 import tachyon.master.LocalTachyonCluster;
-import tachyon.util.PageUtils;
 
 /**
  * Unit tests for <code>tachyon.client.BlockHandlerLocal</code>.
@@ -38,6 +40,7 @@ import tachyon.util.PageUtils;
 public class BlockHandlerLocalTest {
   private static LocalTachyonCluster mLocalTachyonCluster = null;
   private static TachyonFS mTfs = null;
+  private static final int PAGE_SIZE = 20;
 
   @AfterClass
   public static final void afterClass() throws Exception {
@@ -46,7 +49,7 @@ public class BlockHandlerLocalTest {
 
   @BeforeClass
   public static final void beforeClass() throws IOException {
-    mLocalTachyonCluster = new LocalTachyonCluster(10000, 1000, Constants.GB, 20);
+    mLocalTachyonCluster = new LocalTachyonCluster(10000, 1000, Constants.GB, PAGE_SIZE);
     mLocalTachyonCluster.start();
     mTfs = mLocalTachyonCluster.getClient();
   }
@@ -60,7 +63,7 @@ public class BlockHandlerLocalTest {
     int fileId = mTfs.createFile(new TachyonURI(TestUtils.uniqPath()));
     long blockId = mTfs.getBlockId(fileId, 0);
     String blockdir = mTfs.getLocalBlockTemporaryPath(blockId, 100);
-    BlockHandler handler = BlockHandler.get(blockdir);
+    BlockHandler handler = BlockHandler.get(mLocalTachyonCluster.getWorkerTachyonConf(), blockdir);
     try {
       handler.append(buf);
       mTfs.cacheBlock(blockId);
@@ -77,7 +80,7 @@ public class BlockHandlerLocalTest {
     int fileId = mTfs.createFile(new TachyonURI(TestUtils.uniqPath()));
     long blockId = mTfs.getBlockId(fileId, 0);
     String filename = mTfs.getLocalBlockTemporaryPath(blockId, 100);
-    BlockHandler handler = BlockHandler.get(filename);
+    BlockHandler handler = BlockHandler.get(mLocalTachyonCluster.getWorkerTachyonConf(), filename);
     byte[] buf = TestUtils.getIncreasingByteArray(100);
     try {
       handler.append(ByteBuffer.wrap(buf));
@@ -95,7 +98,7 @@ public class BlockHandlerLocalTest {
     int fileId = TestUtils.createByteFile(mTfs, TestUtils.uniqPath(), WriteType.MUST_CACHE, 100);
     TachyonFile file = mTfs.getFile(fileId);
     String blockDir = file.getLocalDirectory(0);
-    BlockHandler handler = BlockHandler.get(blockDir);
+    BlockHandler handler = BlockHandler.get(mLocalTachyonCluster.getWorkerTachyonConf(), blockDir);
     try {
       Exception exception = null;
       try {
@@ -117,33 +120,72 @@ public class BlockHandlerLocalTest {
     }
   }
 
+  /**
+   * To test reading, we make sure we get the correct results for the given bounds
+   * 
+   * @param fileLength the length of the file
+   * @return A list of pairs, where the first item in each pair is a pair of offset-length bounds,
+   *         and the second is the expected result as a ByteBuffer
+   */
+  private List<Pair<Pair<Long, Long>, ByteBuffer>> generateReadTestBounds(long fileLength) {
+    List<Pair<Pair<Long, Long>, ByteBuffer>> ret = new ArrayList<Pair<Pair<Long, Long>, ByteBuffer>>();
+    // Read the whole file with and without -1 as the length
+    ret.add(new Pair<Pair<Long, Long>, ByteBuffer>(new Pair<Long, Long>((long) 0, fileLength), TestUtils
+        .getIncreasingByteBuffer((int) fileLength)));
+    ret.add(new Pair<Pair<Long, Long>, ByteBuffer>(new Pair<Long, Long>((long) 0, (long) -1), TestUtils
+        .getIncreasingByteBuffer((int) fileLength)));
+    // Read an entire page
+    long offset = 0;
+    long length = PAGE_SIZE;
+    ret.add(new Pair<Pair<Long, Long>, ByteBuffer>(new Pair<Long, Long>(offset, length), TestUtils
+        .getIncreasingByteBuffer((int) offset, (int) length)));
+    // Read an entire page offset by half
+    offset = PAGE_SIZE / 2;
+    length = PAGE_SIZE;
+    ret.add(new Pair<Pair<Long, Long>, ByteBuffer>(new Pair<Long, Long>(offset, length), TestUtils
+        .getIncreasingByteBuffer((int) offset, (int) length)));
+    // Read half a page offset by 1/4 of a page
+    offset = PAGE_SIZE / 4;
+    length = PAGE_SIZE / 2;
+    ret.add(new Pair<Pair<Long, Long>, ByteBuffer>(new Pair<Long, Long>(offset, length), TestUtils
+        .getIncreasingByteBuffer((int) offset, (int) length)));
+    return ret;
+  }
+
   @Test
   public void readTest() throws IOException {
     int fileId = TestUtils.createByteFile(mTfs, TestUtils.uniqPath(), WriteType.MUST_CACHE, 100);
     TachyonFile file = mTfs.getFile(fileId);
     String blockDir = file.getLocalDirectory(0);
-    BlockHandler handler = BlockHandler.get(blockDir);
+    BlockHandler handler = BlockHandler.get(mLocalTachyonCluster.getWorkerTachyonConf(), blockDir);
+    List<Pair<Pair<Long, Long>, ByteBuffer>> readBounds = generateReadTestBounds(100);
     try {
-      ByteBuffer buf = handler.read(0, 100);
-      Assert.assertEquals(TestUtils.getIncreasingByteBuffer(100), buf);
-      buf = handler.read(0, -1);
-      Assert.assertEquals(TestUtils.getIncreasingByteBuffer(100), buf);
+      for (Pair<Pair<Long, Long>, ByteBuffer> bound : readBounds) {
+        Assert.assertEquals(bound.getSecond(),
+            handler.read(bound.getFirst().getFirst(), bound.getFirst().getSecond()));
+      }
     } finally {
       handler.close();
     }
   }
 
   @Test
-  public void readPageTest() throws IOException {
+  public void getChannelsTest() throws IOException {
     int fileId = TestUtils.createByteFile(mTfs, TestUtils.uniqPath(), WriteType.MUST_CACHE, 100);
     TachyonFile file = mTfs.getFile(fileId);
     String blockDir = file.getLocalDirectory(0);
-    BlockHandler handler = BlockHandler.get(blockDir);
+    BlockHandler handler = BlockHandler.get(mLocalTachyonCluster.getWorkerTachyonConf(), blockDir);
+    List<Pair<Pair<Long, Long>, ByteBuffer>> readBounds = generateReadTestBounds(100);
     try {
-      for (int pageId : handler.getPageIds()) {
-        ByteBuffer buf = handler.readPage(pageId, 0, -1);
-        Assert.assertEquals(TestUtils.getIncreasingByteBuffer((int) PageUtils.getPageOffset(
-            mLocalTachyonCluster.getWorker().getTachyonConf(), pageId), 20), buf);
+      for (Pair<Pair<Long, Long>, ByteBuffer> bound : readBounds) {
+        List<ByteChannel> channels =
+            handler.getChannels(bound.getFirst().getFirst(), bound.getFirst().getSecond());
+        ByteBuffer buf = ByteBuffer.allocate(bound.getSecond().remaining());
+        for (ByteChannel chan : channels) {
+          chan.read(buf);
+        }
+        buf.flip();
+        Assert.assertEquals(bound.getSecond(), buf);
       }
     } finally {
       handler.close();

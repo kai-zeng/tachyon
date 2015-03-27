@@ -17,30 +17,21 @@ package tachyon.util;
 import java.io.IOException;
 import java.util.List;
 
-import com.sun.tools.javac.code.Attribute;
-import com.sun.xml.bind.v2.runtime.reflect.opt.Const;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
-import tachyon.Constants;
 import tachyon.conf.TachyonConf;
-import tachyon.conf.TachyonConfTest;
 
 public class PageUtilsTest {
   private static PageUtils mPageUtils;
   private static long mPageSize;
-  private static String mWorkerDataFolder;
-  
+
   @Before
   public final void beforeClass() throws IOException {
     TachyonConf tachyonConf = new TachyonConf();
     mPageUtils = new PageUtils(tachyonConf);
-    mPageSize =
-        tachyonConf.getBytes(Constants.PAGE_SIZE_BYTE, Constants.DEFAULT_PAGE_SIZE_BYTE);
-    mWorkerDataFolder =
-        tachyonConf.get(Constants.WORKER_DATA_FOLDER, Constants.DEFAULT_DATA_FOLDER);
-
+    mPageSize = mPageUtils.getPageSize();
   }
 
   @Test
@@ -68,12 +59,6 @@ public class PageUtilsTest {
     for (int i = 0; i < 2; i++) {
       Assert.assertEquals(Integer.valueOf(i), pages.get(i));
     }
-  }
-  
-  @Test
-  public void getWorkerDataFolderTest() {
-    Assert.assertEquals(CommonUtils.concat(mWorkerDataFolder, "pagesize_" + mPageSize),
-        mPageUtils.getWorkerDataFolder());
   }
 
   @Test

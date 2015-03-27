@@ -162,12 +162,14 @@ public class WorkerStorageTest {
   public void unknownBlockDirTest() throws Exception {
     TachyonConf workerConf = mLocalTachyonCluster.getWorkerTachyonConf();
     String dirPath = workerConf.get("tachyon.worker.hierarchystore.level0.dirs.path", null);
-    String dataFolder = CommonUtils.concat(dirPath, PageUtils.getWorkerDataFolder(workerConf));
+    String dataFolder =
+        CommonUtils.concat(dirPath, "datastore", "pagesize_" + PAGE_SIZE_BYTE);
     thrown.expect(IllegalArgumentException.class);
     thrown.expectMessage("Wrong directory name: xyz");
     mLocalTachyonCluster.stopWorker();
     // try a non-numerical file name
     File unknownFile = new File(dataFolder + TachyonURI.SEPARATOR + "xyz");
+
     unknownFile.mkdirs();
     WorkerStorage ws = new WorkerStorage(mMasterAddress, mExecutorService, mLocalTachyonCluster.getWorker().getTachyonConf());
     try {

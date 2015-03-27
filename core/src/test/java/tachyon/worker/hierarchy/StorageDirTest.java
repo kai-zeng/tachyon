@@ -32,6 +32,7 @@ import tachyon.worker.BlockHandler;
 public class StorageDirTest {
   private StorageDir mSrcDir;
   private StorageDir mDstDir;
+  private TachyonConf mTachyonConf;
   private static final long USER_ID = 1;
   private static final long CAPACITY = 1000;
 
@@ -40,11 +41,11 @@ public class StorageDirTest {
     String tachyonHome =
         File.createTempFile("Tachyon", "").getAbsoluteFile() + "U" + System.currentTimeMillis();
     String workerDirFolder = tachyonHome + "/ramdisk";
-    TachyonConf tachyonConf = new TachyonConf();
+    mTachyonConf = new TachyonConf();
     mSrcDir = new StorageDir(1, workerDirFolder + "/src", CAPACITY, "/data", "/user", null,
-        tachyonConf);
+        mTachyonConf);
     mDstDir = new StorageDir(2, workerDirFolder + "/dst", CAPACITY, "/data", "/user", null,
-        tachyonConf);
+        mTachyonConf);
 
     initializeStorageDir(mSrcDir, USER_ID);
     initializeStorageDir(mDstDir, USER_ID);
@@ -65,7 +66,7 @@ public class StorageDirTest {
       exception = e;
     }
     Assert.assertEquals(
-        "Block file doesn't exist! blockId:100 " + mSrcDir.getUserTempFilePath(USER_ID, blockId),
+        "Block path doesn't exist! blockId:100 " + mSrcDir.getUserTempBlockPath(USER_ID, blockId),
         exception.getMessage());
     Assert.assertEquals(CAPACITY, mSrcDir.getAvailableBytes());
     Assert.assertEquals(0, mSrcDir.getUserOwnBytes(USER_ID));
@@ -94,8 +95,8 @@ public class StorageDirTest {
   private void createBlockFile(StorageDir dir, long blockId, int blockSize) throws IOException {
     byte[] buf = TestUtils.getIncreasingByteArray(blockSize);
     BlockHandler bhSrc =
-        BlockHandler.get(CommonUtils.concat(dir.getUserTempBlockPath(USER_ID, blockId)
-            .toString()));
+        BlockHandler.get(mTachyonConf,
+            CommonUtils.concat(dir.getUserTempBlockPath(USER_ID, blockId).toString()));
     dir.requestSpace(USER_ID, blockSize);
     dir.updateTempBlockAllocatedBytes(USER_ID, blockId, blockSize);
     try {

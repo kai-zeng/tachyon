@@ -15,6 +15,7 @@
 
 package tachyon.worker.netty;
 
+import java.io.File;
 import java.nio.ByteBuffer;
 import java.nio.channels.ByteChannel;
 import java.nio.channels.FileChannel;
@@ -75,34 +76,21 @@ public final class BlockResponse {
 
       BlockHandler handler = msg.getHandler();
       if (handler != null) {
-        FileTransferType type = mTachyonConf.getEnum(Constants.WORKER_NETTY_FILE_TRANSFER_TYPE,
-            FileTransferType.TRANSFER);
-        switch (type) {
-          case MAPPED:
-            ByteBuffer data = handler.read(msg.getOffset(), (int) msg.getLength());
-            out.add(Unpooled.wrappedBuffer(data));
-            handler.close();
-            break;
-          default: // TRANSFER
-            // We try to add a channel for each page
-            long bytesProcessed = 0;
-            for (int pageId = PageUtils.getPageId(mTachyonConf, msg.getOffset()); pageId < PageUtils
-                .getPageId(mTachyonConf, msg.getOffset() + msg.getLength() - 1); pageId ++) {
-              long pageOffset =
-                  (msg.getOffset() + bytesProcessed) - PageUtils.getPageOffset(mTachyonConf, pageId);
-              long bytesToRead =
-                  Math.min(mPageSize - pageOffset, msg.getLength() - bytesProcessed);
-              ByteChannel channel = handler.getChannel(pageOffset, bytesToRead);
-              bytesProcessed += bytesToRead;
-              if (channel instanceof FileChannel) {
-                out.add(new DefaultFileRegion((FileChannel) channel, msg.getOffset(), msg
-                    .getLength()));
-              } else {
-                handler.close();
-                throw new Exception("Only FileChannel is supported!");
-              }
-            }
-            break;
+        try {
+          FileTransferType type = mTachyonConf.getEnum(Constants.WORKER_NETTY_FILE_TRANSFER_TYPE,
+              FileTransferType.TRANSFER);
+          switch (type) {
+            case MAPPED:
+              ByteBuffer data = handler.read(msg.getOffset(), (int) msg.getLength());
+              out.add(Unpooled.wrappedBuffer(data));
+              handler.close();
+              break;
+            default: // TRANSFER
+              out.addAll(handler.getChannels(msg.getOffset(), msg.getLength()));
+              break;
+          }
+        } finally {
+          handler.close();
         }
       }
     }

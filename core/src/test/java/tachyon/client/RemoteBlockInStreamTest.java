@@ -437,7 +437,7 @@ public class RemoteBlockInStreamTest {
 
   /**
    * Test <code>void seek(long pos)</code>.
-   * 
+   *
    * @throws IOException
    */
   @Test
