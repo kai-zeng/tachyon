@@ -26,7 +26,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import tachyon.Constants;
-import tachyon.worker.BlockHandler;
+import tachyon.worker.BlockReader;
 import tachyon.worker.BlocksLocker;
 import tachyon.worker.hierarchy.StorageDir;
 
@@ -55,18 +55,16 @@ public final class DataServerHandler extends ChannelInboundHandlerAdapter {
     final int lockId = mLocker.getLockId();
     final StorageDir storageDir = mLocker.lock(blockId, lockId);
 
-    BlockHandler handler = null;
+    BlockReader blockReader = null;
     try {
       validateInput(req);
-      handler = storageDir.getBlockHandler(blockId);
-
-      final long fileLength = handler.getLength();
-      validateBounds(req, fileLength);
-      final long readLength = returnLength(offset, len, fileLength);
+      blockReader = new BlockReader(storageDir.getBlockDirPath(blockId).toString());
+      validateBounds(req, blockReader.getSize());
+      final long readLength = returnLength(offset, len, blockReader.getSize());
       ChannelFuture future =
-          ctx.writeAndFlush(new BlockResponse(blockId, offset, readLength, handler));
+          ctx.writeAndFlush(new BlockResponse(blockId, offset, readLength, blockReader));
       future.addListener(ChannelFutureListener.CLOSE);
-      future.addListener(new ClosableResourceChannelListener(handler));
+      future.addListener(new ClosableResourceChannelListener(blockReader));
       storageDir.accessBlock(blockId);
       LOG.info("Response remote request by reading from {}, preparation done.",
           storageDir.getBlockDirPath(blockId).toString());
@@ -76,8 +74,8 @@ public final class DataServerHandler extends ChannelInboundHandlerAdapter {
       BlockResponse resp = BlockResponse.createErrorResponse(blockId);
       ChannelFuture future = ctx.writeAndFlush(resp);
       future.addListener(ChannelFutureListener.CLOSE);
-      if (handler != null) {
-        handler.close();
+      if (blockReader == null) {
+        blockReader.close();
       }
     } finally {
       mLocker.unlock(blockId, lockId);

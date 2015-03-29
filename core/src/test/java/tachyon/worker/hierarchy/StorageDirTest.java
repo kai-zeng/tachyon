@@ -26,7 +26,7 @@ import tachyon.TestUtils;
 import tachyon.UnderFileSystem;
 import tachyon.thrift.InvalidPathException;
 import tachyon.util.CommonUtils;
-import tachyon.worker.BlockHandler;
+import tachyon.worker.BlockAppender;
 
 public class StorageDirTest {
   private StorageDir mSrcDir;
@@ -89,15 +89,14 @@ public class StorageDirTest {
 
   private void createBlockFile(StorageDir dir, long blockId, int blockSize) throws IOException {
     byte[] buf = TestUtils.getIncreasingByteArray(blockSize);
-    BlockHandler bhSrc =
-        BlockHandler.get(CommonUtils.concat(dir.getUserTempBlockPath(USER_ID, blockId)
-            .toString()));
     dir.requestSpace(USER_ID, blockSize);
     dir.updateTempBlockAllocatedBytes(USER_ID, blockId, blockSize);
+    BlockAppender blockAppender =
+        new BlockAppender(CommonUtils.concat(dir.getUserTempBlockPath(USER_ID, blockId).toString()));
     try {
-      bhSrc.append(ByteBuffer.wrap(buf));
+      blockAppender.append(ByteBuffer.wrap(buf));
     } finally {
-      bhSrc.close();
+      blockAppender.close();
     }
     dir.cacheBlock(USER_ID, blockId);
   }

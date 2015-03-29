@@ -23,7 +23,7 @@ import org.slf4j.LoggerFactory;
 
 import tachyon.Constants;
 import tachyon.conf.UserConf;
-import tachyon.worker.BlockHandler;
+import tachyon.worker.BlockAppender;
 
 /**
  * <code>BlockOutStream</code> implementation of TachyonFile. This class is not client facing.
@@ -41,8 +41,8 @@ public class BlockOutStream extends OutStream {
   private final long mBlockOffset;
   // Whether this block is pinned
   private final boolean mPin;
-  // The BlockHandler that deals with writing to the block
-  private final BlockHandler mBlockHandler;
+  // The BlockAppender that deals with writing to the block
+  private final BlockAppender mBlockAppender;
   // The local directory the block is being written in
   private final String mBlockDir;
   // We buffer writes to a ByteBuffer and periodically flush them to the block handler
@@ -95,7 +95,7 @@ public class BlockOutStream extends OutStream {
       throw new IOException(msg);
     }
     mBlockDir = mTachyonFS.getLocalBlockTemporaryPath(mBlockId, initialBytes);
-    mBlockHandler = BlockHandler.get(mBlockDir);
+    mBlockAppender = new BlockAppender(mBlockDir);
     mBuffer = ByteBuffer.allocate(mUserConf.FILE_BUFFER_BYTES + 4);
     mAvailableBytes += initialBytes;
     LOG.info(mBlockDir + " was created!");
@@ -104,7 +104,7 @@ public class BlockOutStream extends OutStream {
   @Override
   public void cancel() throws IOException {
     if (!mClosed) {
-      mBlockHandler.close();
+      mBlockAppender.close();
       mClosed = true;
       mTachyonFS.cancelBlock(mBlockId);
       LOG.info(String.format("Canceled output of block. blockId(%d) path(%s)", mBlockId,
@@ -122,8 +122,8 @@ public class BlockOutStream extends OutStream {
   @Override
   public void close() throws IOException {
     if (!mClosed) {
-      flushToBlockHandler();
-      mBlockHandler.close();
+      flushToBlockAppender();
+      mBlockAppender.close();
       mTachyonFS.cacheBlock(mBlockId);
       mClosed = true;
     }
@@ -138,9 +138,9 @@ public class BlockOutStream extends OutStream {
    * Flushes the internal buffer to the block handler
    * @throws IOException
    */
-  private void flushToBlockHandler() throws IOException {
+  private void flushToBlockAppender() throws IOException {
     mBuffer.flip();
-    mBlockHandler.append(mBuffer);
+    mBlockAppender.append(mBuffer);
     mBuffer.clear();
   }
 
@@ -162,7 +162,7 @@ public class BlockOutStream extends OutStream {
    * @return the remaining space of the block, in bytes
    */
   public long getRemainingSpaceByte() throws IOException {
-    return mBlockCapacityByte - mBlockHandler.getLength();
+    return mBlockCapacityByte - mBlockAppender.getWrittenBytes();
   }
 
   @Override
@@ -184,7 +184,7 @@ public class BlockOutStream extends OutStream {
           b.length, off, len));
     }
 
-    long newLen = mBlockHandler.getLength() + mBuffer.position() + len;
+    long newLen = mBlockAppender.getWrittenBytes() + mBuffer.position() + len;
     // If the new length is longer than the block capacity, throw an error. If it is greater than
     // what the worker has allocated for the given block, we need to request more space.
     if (newLen > mBlockCapacityByte) {
@@ -202,11 +202,11 @@ public class BlockOutStream extends OutStream {
 
     if (len > mBuffer.remaining()) {
       // Flush the existing buffer first then try to write
-      flushToBlockHandler();
+      flushToBlockAppender();
     }
     if (len > mBuffer.remaining()) {
       // At this point, the write is too big for the buffer, so write directly to the block handler
-      mBlockHandler.append(b, off, len);
+      mBlockAppender.append(ByteBuffer.wrap(b, off, len));
     } else {
       // We can write to the buffer
       mBuffer.put(b, off, len);
