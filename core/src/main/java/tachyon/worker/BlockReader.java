@@ -146,7 +146,7 @@ public final class BlockReader implements Closeable {
     // If there is just one channel, we can return a mapped byte-buffer of just the requested
     // content of the file
     if (channels.size() == 1) {
-      return channels.get(0).map(FileChannel.MapMode.READ_ONLY, 0, length);
+      return channels.get(0).map(FileChannel.MapMode.READ_ONLY, channels.get(0).position(), length);
     }
     // Otherwise, we have to create a ByteBuffer large enough to hold the requested range and copy
     // the correct pages in.
