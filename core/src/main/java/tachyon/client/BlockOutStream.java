@@ -26,7 +26,9 @@ import tachyon.conf.UserConf;
 import tachyon.worker.BlockAppender;
 
 /**
- * <code>BlockOutStream</code> implementation of TachyonFile. This class is not client facing.
+ * <code>BlockOutStream</code> implementation of TachyonFile. This class is not client facing. It
+ * should only be used for caching an incomplete file. For re-caching an existing file, use the
+ * ClientBlockCacher class.
  */
 public class BlockOutStream extends OutStream {
   private static final Logger LOG = LoggerFactory.getLogger(Constants.LOGGER_TYPE);
@@ -39,13 +41,11 @@ public class BlockOutStream extends OutStream {
   private final long mBlockId;
   // The byte offset of the block in the file
   private final long mBlockOffset;
-  // Whether this block is pinned
-  private final boolean mPin;
   // The BlockAppender that deals with writing to the block
   private final BlockAppender mBlockAppender;
   // The local directory the block is being written in
   private final String mBlockDir;
-  // We buffer writes to a ByteBuffer and periodically flush them to the block handler
+  // We buffer writes to a ByteBuffer and periodically flush them to the block appender
   private final ByteBuffer mBuffer;
 
   // When false, all write operations will fail
@@ -85,7 +85,6 @@ public class BlockOutStream extends OutStream {
     mBlockCapacityByte = mFile.getBlockSizeByte();
     mBlockId = mFile.getBlockId(mBlockIndex);
     mBlockOffset = mBlockCapacityByte * blockIndex;
-    mPin = mFile.needPin();
 
     mCanWrite = true;
 
