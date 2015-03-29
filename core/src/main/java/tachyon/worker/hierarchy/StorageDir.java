@@ -172,23 +172,20 @@ public final class StorageDir {
       cancelBlock(userId, blockId);
       throw new IOException("Block file doesn't exist! blockId:" + blockId + " " + srcPath);
     }
-    long blockSize = BlockHandler.get(srcPath).getLength();
-    if (blockSize < 0) {
-      cancelBlock(userId, blockId);
-      throw new IOException("Negative block size! blockId:" + blockId);
-    }
-    returnSpace(userId, allocatedBytes - blockSize);
-    if (mFs.exists(dstPath)) {
-      // The rename won't do anything since the block is already cached
-      mFs.delete(srcPath, true);
-      returnSpace(userId, blockSize);
-      return true;
-    } else if (mFs.rename(srcPath, dstPath)) {
+    BlockHandler blockHandler = BlockHandler.get(srcPath);
+    try {
+      long blockSize = blockHandler.getLength();
+      if (blockSize < 0) {
+        cancelBlock(userId, blockId);
+        throw new IOException("Negative block size! blockId:" + blockId);
+      }
+      returnSpace(userId, allocatedBytes - blockSize);
+      blockHandler.move(dstPath);
       addBlockId(blockId, blockSize, false);
       updateUserOwnBytes(userId, -blockSize);
       return true;
-    } else {
-      return false;
+    } finally {
+      blockHandler.close();
     }
   }
 
