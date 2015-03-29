@@ -320,11 +320,11 @@ public final class BlockHandlerLocal extends BlockHandler {
   public void move(String path) throws IOException {
     mDeleted = true;
     File dstDir = new File(Preconditions.checkNotNull(path));
-    mBlockDir.mkdirs();
-    for (int pageId = 0; pageId < PageUtils.getNumPages(mLength); pageId ++) {
-      File srcFile = mPageFiles.get(pageId).getFile();
-      Files.move(srcFile.toPath(), Paths.get(mBlockDir.getAbsolutePath(), srcFile.getName()),
-          StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.COPY_ATTRIBUTES);
+    dstDir.mkdirs();
+    for (PageFile pageFile : mPageFiles) {
+      Files.move(pageFile.getFile().toPath(),
+          new File(dstDir, pageFile.getFile().getName()).toPath(),
+          StandardCopyOption.REPLACE_EXISTING);
     }
     mBlockDir.delete();
   }
