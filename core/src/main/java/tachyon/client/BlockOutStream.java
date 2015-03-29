@@ -129,10 +129,7 @@ public class BlockOutStream extends OutStream {
   @Override
   public void close() throws IOException {
     if (!mClosed) {
-      if (mBuffer.hasRemaining()) {
-        mBuffer.flip();
-        mBlockHandler.append(mBuffer);
-      }
+      flushToBlockHandler();
       mBlockHandler.close();
       mTachyonFS.cacheBlock(mBlockId);
       mClosed = true;
@@ -142,6 +139,16 @@ public class BlockOutStream extends OutStream {
   @Override
   public void flush() throws IOException {
     // Since this only writes to memory, this flush is not outside visible.
+  }
+
+  /**
+   * Flushes the internal buffer to the block handler
+   * @throws IOException
+   */
+  private void flushToBlockHandler() throws IOException {
+    mBuffer.flip();
+    mBlockHandler.append(mBuffer);
+    mBuffer.clear();
   }
 
   /**
@@ -184,7 +191,7 @@ public class BlockOutStream extends OutStream {
           b.length, off, len));
     }
 
-    long newLen = mBlockHandler.getLength() + len;
+    long newLen = mBlockHandler.getLength() + mBuffer.position() + len;
     // If the new length is longer than the block capacity, throw an error. If it is greater than
     // what the worker has allocated for the given block, we need to request more space.
     if (newLen > mBlockCapacityByte) {
@@ -199,7 +206,18 @@ public class BlockOutStream extends OutStream {
             + " blockId(%d) requestSize(%d)", mFile.mFileId, mBlockId, newLen - mAvailableBytes));
       }
     }
-    mBlockHandler.append(b, off, len);
+
+    if (len > mBuffer.remaining()) {
+      // Flush the existing buffer first then try to write
+      flushToBlockHandler();
+    }
+    if (len > mBuffer.remaining()) {
+      // At this point, the write is too big for the buffer, so write directly to the block handler
+      mBlockHandler.append(b, off, len);
+    } else {
+      // We can write to the buffer
+      mBuffer.put(b, off, len);
+    }
   }
 
   @Override

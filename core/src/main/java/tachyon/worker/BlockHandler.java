@@ -83,13 +83,6 @@ public abstract class BlockHandler implements Closeable {
   public abstract boolean delete() throws IOException;
 
   /**
-   * Flushes the block to the filesystem
-   *
-   * @throws java.io.IOException
-   */
-  public abstract void flush() throws IOException;
-
-  /**
    * Gets a list of channels used to access block at a given offset and length.
    *
    * @param offset the offset into the block

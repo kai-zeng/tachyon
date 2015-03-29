@@ -661,14 +661,15 @@ public final class StorageDir {
    */
   public boolean moveBlock(long blockId, StorageDir dstDir) throws IOException {
     if (lockBlock(blockId, Users.MIGRATE_DATA_USER_ID)) {
-      boolean result = false;
+      BlockHandler bh = getBlockHandler(blockId);
+      TachyonURI dstPath = dstDir.getBlockDirPath(blockId);
       try {
-        result = copyBlock(blockId, dstDir);
+        bh.copy(dstPath.toString());
+        dstDir.addBlockId(blockId, bh.getLength(), mLastBlockAccessTimeMs.get(blockId), true);
+        deleteBlockId(blockId);
       } finally {
+        bh.close();
         unlockBlock(blockId, Users.MIGRATE_DATA_USER_ID);
-      }
-      if (result) {
-        return deleteBlock(blockId);
       }
     }
     return false;
