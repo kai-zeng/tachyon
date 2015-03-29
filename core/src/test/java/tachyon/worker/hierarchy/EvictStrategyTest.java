@@ -30,7 +30,7 @@ import tachyon.TestUtils;
 import tachyon.UnderFileSystem;
 import tachyon.master.BlockInfo;
 import tachyon.util.CommonUtils;
-import tachyon.worker.BlockHandler;
+import tachyon.worker.BlockAppender;
 import tachyon.worker.eviction.EvictLRU;
 import tachyon.worker.eviction.EvictPartialLRU;
 import tachyon.worker.eviction.EvictStrategy;
@@ -55,16 +55,12 @@ public class EvictStrategyTest {
 
   private void createBlockFile(StorageDir dir, long blockId, int blockSize) throws IOException {
     byte[] buf = TestUtils.getIncreasingByteArray(blockSize);
-
-    BlockHandler bhSrc =
-        BlockHandler.get(dir.getUserTempBlockPath(USER_ID, blockId).toString());
     dir.requestSpace(USER_ID, blockSize);
     dir.updateTempBlockAllocatedBytes(USER_ID, blockId, blockSize);
-    try {
-      bhSrc.append(ByteBuffer.wrap(buf));
-    } finally {
-      bhSrc.close();
-    }
+    BlockAppender blockAppender =
+        new BlockAppender(dir.getUserTempBlockPath(USER_ID, blockId).toString());
+    blockAppender.append(ByteBuffer.wrap(buf));
+    blockAppender.close();
     dir.cacheBlock(USER_ID, blockId);
   }
 

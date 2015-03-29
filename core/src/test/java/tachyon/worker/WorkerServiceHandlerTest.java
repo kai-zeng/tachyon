@@ -105,12 +105,12 @@ public class WorkerServiceHandlerTest {
         new FileDoesNotExistException("Block doesn't exist! blockId:" + blockId1), exception);
   }
 
-  private void createBlockFile(String filename, int fileLen)
+  private void createBlockFile(String blockDir, int fileLen)
       throws IOException, InvalidPathException {
-    UnderFileSystem.get(filename).mkdirs(CommonUtils.getParent(filename), true);
-    BlockHandler handler = BlockHandler.get(filename);
-    handler.append(TestUtils.getIncreasingByteArray(fileLen), 0, fileLen);
-    handler.close();
+    UnderFileSystem.get(blockDir).mkdirs(CommonUtils.getParent(blockDir), true);
+    BlockAppender blockAppender = new BlockAppender(blockDir);
+    blockAppender.append(TestUtils.getIncreasingByteBuffer(fileLen));
+    blockAppender.close();
   }
 
   @Test

@@ -35,7 +35,6 @@ import org.slf4j.LoggerFactory;
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Multimaps;
-import com.google.common.io.Closer;
 
 import tachyon.Constants;
 import tachyon.Pair;
@@ -43,7 +42,8 @@ import tachyon.TachyonURI;
 import tachyon.UnderFileSystem;
 import tachyon.Users;
 import tachyon.util.CommonUtils;
-import tachyon.worker.BlockHandler;
+import tachyon.worker.BlockOperator;
+import tachyon.worker.BlockReader;
 import tachyon.worker.SpaceCounter;
 
 /**
@@ -172,21 +172,16 @@ public final class StorageDir {
       cancelBlock(userId, blockId);
       throw new IOException("Block file doesn't exist! blockId:" + blockId + " " + srcPath);
     }
-    BlockHandler blockHandler = BlockHandler.get(srcPath);
-    try {
-      long blockSize = blockHandler.getLength();
-      if (blockSize < 0) {
-        cancelBlock(userId, blockId);
-        throw new IOException("Negative block size! blockId:" + blockId);
-      }
-      returnSpace(userId, allocatedBytes - blockSize);
-      blockHandler.move(dstPath);
-      addBlockId(blockId, blockSize, false);
-      updateUserOwnBytes(userId, -blockSize);
-      return true;
-    } finally {
-      blockHandler.close();
+    long blockSize = new BlockReader(srcPath).getSize();
+    if (blockSize < 0) {
+      cancelBlock(userId, blockId);
+      throw new IOException("Negative block size! blockId:" + blockId);
     }
+    returnSpace(userId, allocatedBytes - blockSize);
+    new BlockOperator(srcPath).move(dstPath);
+    addBlockId(blockId, blockSize, false);
+    updateUserOwnBytes(userId, -blockSize);
+    return true;
   }
 
   /**
@@ -258,14 +253,11 @@ public final class StorageDir {
       LOG.error("Block file doesn't exist! blockId:{}", blockId);
       return false;
     }
-    BlockHandler bh = getBlockHandler(blockId);
-    TachyonURI dstPath = dstDir.getBlockDirPath(blockId);
-    try {
-      bh.copy(dstPath.toString());
-      dstDir.addBlockId(blockId, bh.getLength(), mLastBlockAccessTimeMs.get(blockId), true);
-    } finally {
-      bh.close();
-    }
+    String srcPath = getBlockDirPath(blockId).toString();
+    BlockOperator blockOperator = new BlockOperator(srcPath);
+    blockOperator.copy(dstDir.getBlockDirPath(blockId).toString());
+    dstDir.addBlockId(blockId, (new BlockReader(srcPath)).getSize(),
+        mLastBlockAccessTimeMs.get(blockId), true);
     return true;
   }
 
@@ -286,12 +278,7 @@ public final class StorageDir {
     String blockDir = getBlockDirPath(blockId).toString();
     // Should check lock status here 
     if (!isBlockLocked(blockId)) {
-      BlockHandler bh = getBlockHandler(blockId);
-      try {
-        bh.delete();
-      } finally {
-        bh.close();
-      }
+      (new BlockOperator(getBlockDirPath(blockId).toString())).delete();
       deleteBlockId(blockId);
     } else {
       if (mRemovedBlockIdList.contains(blockId)) {
@@ -361,11 +348,11 @@ public final class StorageDir {
    * @throws IOException
    */
   public ByteBuffer getBlockData(long blockId, long offset, int length) throws IOException {
-    BlockHandler bh = getBlockHandler(blockId);
+    BlockReader blockReader = new BlockReader(getBlockDirPath(blockId).toString());
     try {
-      return bh.read(offset, length);
+      return blockReader.read(offset, length);
     } finally {
-      bh.close();
+      blockReader.close();
       accessBlock(blockId);
     }
   }
@@ -378,22 +365,6 @@ public final class StorageDir {
    */
   public TachyonURI getBlockDirPath(long blockId) {
     return mDataPath.join("" + blockId);
-  }
-
-  /**
-   * Get block handler used to access the block file
-   * 
-   * @param blockId Id of the block
-   * @return block handler of the block file
-   * @throws IOException
-   */
-  public BlockHandler getBlockHandler(long blockId) throws IOException {
-    String filePath = getBlockDirPath(blockId).toString();
-    try {
-      return BlockHandler.get(filePath);
-    } catch (IllegalArgumentException e) {
-      throw new IOException(e.getMessage());
-    }
   }
 
   /**
@@ -596,15 +567,14 @@ public final class StorageDir {
       if (!mFs.isFile(path)) {
         cnt ++;
         long blockId = CommonUtils.getBlockIdFromDirName(name);
-        BlockHandler bh = getBlockHandler(blockId);
-        long blockSize = bh.getLength();
+        long blockSize = (new BlockReader(path)).getSize();
         LOG.debug("Block dir{}: {} with size {} Bs.", cnt, path, blockSize);
         boolean success = mSpaceCounter.requestSpaceBytes(blockSize);
         if (success) {
           addBlockId(blockId, blockSize, true);
         } else {
-          mFs.delete(path, true);
-          LOG.warn("Pre-existing files exceed storage capacity. deleting file:{}", path);
+          (new BlockOperator(path)).delete();
+          LOG.warn("Pre-existing files exceed storage capacity. deleting block:{}", path);
         }
       }
     }
@@ -649,14 +619,14 @@ public final class StorageDir {
    */
   public boolean moveBlock(long blockId, StorageDir dstDir) throws IOException {
     if (lockBlock(blockId, Users.MIGRATE_DATA_USER_ID)) {
-      BlockHandler bh = getBlockHandler(blockId);
-      TachyonURI dstPath = dstDir.getBlockDirPath(blockId);
       try {
-        bh.copy(dstPath.toString());
-        dstDir.addBlockId(blockId, bh.getLength(), mLastBlockAccessTimeMs.get(blockId), true);
+        String srcPath = getBlockDirPath(blockId).toString();
+        String dstPath = dstDir.getBlockDirPath(blockId).toString();
+        long blockSize = (new BlockReader(srcPath)).getSize();
+        (new BlockOperator(srcPath)).move(dstPath);
+        dstDir.addBlockId(blockId, blockSize, mLastBlockAccessTimeMs.get(blockId), true);
         deleteBlockId(blockId);
       } finally {
-        bh.close();
         unlockBlock(blockId, Users.MIGRATE_DATA_USER_ID);
       }
     }

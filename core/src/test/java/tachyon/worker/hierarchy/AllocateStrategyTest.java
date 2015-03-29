@@ -24,7 +24,7 @@ import org.junit.Test;
 
 import tachyon.TestUtils;
 import tachyon.UnderFileSystem;
-import tachyon.worker.BlockHandler;
+import tachyon.worker.BlockAppender;
 import tachyon.worker.allocation.AllocateStrategies;
 import tachyon.worker.allocation.AllocateStrategy;
 import tachyon.worker.allocation.AllocateStrategyType;
@@ -52,15 +52,12 @@ public class AllocateStrategyTest {
 
   private void createBlockFile(StorageDir dir, long blockId, int blockSize) throws IOException {
     byte[] buf = TestUtils.getIncreasingByteArray(blockSize);
-    BlockHandler bhSrc =
-        BlockHandler.get(dir.getUserTempBlockPath(USER_ID, blockId).toString());
     dir.requestSpace(USER_ID, blockSize);
     dir.updateTempBlockAllocatedBytes(USER_ID, blockId, blockSize);
-    try {
-      bhSrc.append(ByteBuffer.wrap(buf));
-    } finally {
-      bhSrc.close();
-    }
+    BlockAppender blockAppender =
+        new BlockAppender(dir.getUserTempBlockPath(USER_ID, blockId).toString());
+    blockAppender.append(ByteBuffer.wrap(buf));
+    blockAppender.close();
     dir.cacheBlock(USER_ID, blockId);
   }
 

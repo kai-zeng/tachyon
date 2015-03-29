@@ -15,19 +15,14 @@
 
 package tachyon.client;
 
-import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
-import java.nio.channels.FileChannel;
 import java.util.ArrayList;
 import java.util.List;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import com.google.common.io.Closer;
 
 import tachyon.Constants;
 import tachyon.TachyonURI;
@@ -35,9 +30,8 @@ import tachyon.UnderFileSystem;
 import tachyon.conf.UserConf;
 import tachyon.thrift.ClientBlockInfo;
 import tachyon.thrift.ClientFileInfo;
-import tachyon.thrift.NetAddress;
 import tachyon.thrift.WorkerInfo;
-import tachyon.worker.BlockHandler;
+import tachyon.worker.BlockReader;
 
 /**
  * Tachyon File.
@@ -405,11 +399,12 @@ public class TachyonFile implements Comparable<TachyonFile> {
     String localBlockDir = mTachyonFS.lockBlock(blockId, blockLockId);
 
     if (localBlockDir != null) {
-      BlockHandler bh = BlockHandler.get(localBlockDir);
+      BlockReader blockReader = new BlockReader(localBlockDir);
       try {
-        return new TachyonByteBuffer(mTachyonFS, bh.read(offset, len), blockId, blockLockId);
+        return new TachyonByteBuffer(mTachyonFS, blockReader.read(offset, len), blockId,
+            blockLockId);
       } finally {
-        bh.close();
+        blockReader.close();
       }
     }
 
