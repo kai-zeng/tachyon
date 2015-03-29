@@ -26,7 +26,6 @@ import java.nio.channels.FileChannel;
 import java.nio.channels.FileChannel.MapMode;
 import java.nio.channels.WritableByteChannel;
 import java.nio.file.Files;
-import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.List;
@@ -107,9 +106,6 @@ public final class BlockHandlerLocal extends BlockHandler {
   private boolean mDeleted = false;
   // The length of the block
   private long mLength = 0;
-  // A buffer to hold the bytes appended to the current page. We flush
-  // whenever we reach the end of a page file.
-  private final ByteBuffer mBuffer;
 
   BlockHandlerLocal(String blockDir) throws IOException {
     mBlockDir = new File(Preconditions.checkNotNull(blockDir));
@@ -124,7 +120,6 @@ public final class BlockHandlerLocal extends BlockHandler {
       mPageFiles.add(new PageFile(new File(mBlockDir, PageUtils.getPageFilename(i)), mCloser));
       mLength += mPageFiles.get(mPageFiles.size() - 1).getFile().length();
     }
-    mBuffer = ByteBuffer.allocate((int) UserConf.get().PAGE_SIZE_BYTE);
   }
 
   /* Adds a new page file after the last one
@@ -141,13 +136,24 @@ public final class BlockHandlerLocal extends BlockHandler {
     // We append to the last file in the list of pages. If we run out of space, we add a new page.
     int bufLen = buf.remaining();
     while (buf.hasRemaining()) {
-      // Append as much of the argument buffer as possible to our buffer
-      int bytesToWrite = Math.min(buf.remaining(), mBuffer.remaining());
-      mBuffer.put((ByteBuffer) buf.slice().limit(bytesToWrite));
+      // If there are no pages, add a new one
+      if (mPageFiles.size() == 0) {
+        addNewPageFile();
+      }
+      // Write as much of our buffer as possible to the last page file
+      long lastPageLength = mPageFiles.get(mPageFiles.size() - 1).getFile().length();
+      int bytesToWrite =
+          Math.min(buf.remaining(), (int) (UserConf.get().PAGE_SIZE_BYTE - lastPageLength));
+      ByteBuffer out =
+          mPageFiles.get(mPageFiles.size() - 1).getChannel()
+              .map(MapMode.READ_WRITE, lastPageLength, bytesToWrite);
+      checkPermission();
+      out.put((ByteBuffer) buf.slice().limit(bytesToWrite));
       buf.position(buf.position() + bytesToWrite);
-      // If our buffer is full, flush it to the filesystem
-      if (!mBuffer.hasRemaining()) {
-        flush();
+      CommonUtils.cleanDirectBuffer(out);
+      // If we wrote to the end of the last page file, add a new one
+      if (lastPageLength + bytesToWrite == UserConf.get().PAGE_SIZE_BYTE) {
+        addNewPageFile();
       }
     }
     mLength += bufLen;
@@ -173,9 +179,6 @@ public final class BlockHandlerLocal extends BlockHandler {
 
   @Override
   public void close() throws IOException {
-    if (!mDeleted) {
-      flush();
-    }
     mCloser.close();
   }
 
@@ -188,34 +191,6 @@ public final class BlockHandlerLocal extends BlockHandler {
     }
     // Delete the directory
     return mBlockDir.delete();
-  }
-
-  @Override
-  public void flush() throws IOException {
-    checkDeleted();
-    mBuffer.flip();
-    while (mBuffer.hasRemaining()) {
-      // If there are no pages, add a new one
-      if (mPageFiles.size() == 0) {
-        addNewPageFile();
-      }
-      // Write as much of our buffer as possible to the last page file
-      long lastPageLength = mPageFiles.get(mPageFiles.size() - 1).getFile().length();
-      int bytesToWrite =
-          Math.min(mBuffer.remaining(), (int) (UserConf.get().PAGE_SIZE_BYTE - lastPageLength));
-      ByteBuffer out =
-          mPageFiles.get(mPageFiles.size() - 1).getChannel()
-              .map(MapMode.READ_WRITE, lastPageLength, bytesToWrite);
-      checkPermission();
-      out.put((ByteBuffer) mBuffer.slice().limit(bytesToWrite));
-      mBuffer.position(mBuffer.position() + bytesToWrite);
-      CommonUtils.cleanDirectBuffer(out);
-      // If we wrote to the end of the last page file, add a new one
-      if (lastPageLength + bytesToWrite == UserConf.get().PAGE_SIZE_BYTE) {
-        addNewPageFile();
-      }
-    }
-    mBuffer.clear();
   }
 
   @Override
