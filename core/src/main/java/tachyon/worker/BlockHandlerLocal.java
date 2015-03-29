@@ -293,6 +293,12 @@ public final class BlockHandlerLocal extends BlockHandler {
 
   @Override
   public void move(String path) throws IOException {
+    // This has to be implemented by moving each file in the block individually. It's hard to just
+    // rename the source directory, even if the destination doesn't exist, because if two threads
+    // are caching to the same block destination, then it's difficult to atomicize the directory
+    // existence and rename check, so one move could succeed and the other fail. One possibility is
+    // to try and rename the entire directory and do each file if that
+    // throws an exception, but that will need some thinking about.
     mDeleted = true;
     File dstDir = new File(Preconditions.checkNotNull(path));
     dstDir.mkdirs();
