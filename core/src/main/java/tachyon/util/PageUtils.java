@@ -70,13 +70,24 @@ public class PageUtils {
     return CommonUtils.concat(WorkerConf.get().DATA_FOLDER, pageString);
   }
 
-  /* Gets the file name of the page with the given id
+  /**
+   * Gets the file name of the page with the given id
    *
-   * @param id the id of the page
+   * @param pageId the id of the page
    * @return the file name for the page
    */
   public static String getPageFilename(int pageId) {
     return String.valueOf(pageId);
+  }
+
+  /**
+   * Gets the page id for the given filename. It is the inverse of #getPageFilename
+   *
+   * @param fileName the name of the page file
+   * @return the id of the page file
+   */
+  public static Integer getPageId(String fileName) {
+    return Integer.valueOf(fileName);
   }
 
   /**

@@ -1,22 +1,8 @@
-/*
- * Licensed to the University of California, Berkeley under one or more contributor license
- * agreements. See the NOTICE file distributed with this work for additional information regarding
- * copyright ownership. The ASF licenses this file to You under the Apache License, Version 2.0 (the
- * "License"); you may not use this file except in compliance with the License. You may obtain a
- * copy of the License at
- * 
- * http://www.apache.org/licenses/LICENSE-2.0
- * 
- * Unless required by applicable law or agreed to in writing, software distributed under the License
- * is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express
- * or implied. See the License for the specific language governing permissions and limitations under
- * the License.
- */
 package tachyon.worker;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.nio.channels.ByteChannel;
+import java.nio.channels.FileChannel;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -26,7 +12,6 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 import tachyon.Pair;
-import tachyon.TachyonURI;
 import tachyon.TestUtils;
 import tachyon.client.TachyonFS;
 import tachyon.client.TachyonFile;
@@ -34,9 +19,9 @@ import tachyon.client.WriteType;
 import tachyon.master.LocalTachyonCluster;
 
 /**
- * Unit tests for <code>tachyon.client.BlockHandlerLocal</code>.
+ * Unit tests for BlockReader
  */
-public class BlockHandlerLocalTest {
+public class BlockReaderTest {
   private static LocalTachyonCluster mLocalTachyonCluster = null;
   private static TachyonFS mTfs = null;
   private static final int PAGE_SIZE = 20;
@@ -57,78 +42,9 @@ public class BlockHandlerLocalTest {
     mTfs = mLocalTachyonCluster.getClient();
   }
 
-  @Test
-  public void directByteBufferWriteTest() throws IOException {
-    ByteBuffer buf = ByteBuffer.allocateDirect(100);
-    buf.put(TestUtils.getIncreasingByteArray(100));
-    buf.position(0);
-
-    int fileId = mTfs.createFile(new TachyonURI(TestUtils.uniqPath()));
-    long blockId = mTfs.getBlockId(fileId, 0);
-    String blockdir = mTfs.getLocalBlockTemporaryPath(blockId, 100);
-    BlockHandler handler = BlockHandler.get(blockdir);
-    try {
-      handler.append(buf);
-      mTfs.cacheBlock(blockId);
-      TachyonFile file = mTfs.getFile(fileId);
-      long fileLen = file.length();
-      Assert.assertEquals(100, fileLen);
-    } finally {
-      handler.close();
-    }
-    return;
-  }
-
-  @Test
-  public void heapByteBufferwriteTest() throws IOException {
-    int fileId = mTfs.createFile(new TachyonURI(TestUtils.uniqPath()));
-    long blockId = mTfs.getBlockId(fileId, 0);
-    String filename = mTfs.getLocalBlockTemporaryPath(blockId, 100);
-    BlockHandler handler = BlockHandler.get(filename);
-    byte[] buf = TestUtils.getIncreasingByteArray(100);
-    try {
-      handler.append(ByteBuffer.wrap(buf));
-      mTfs.cacheBlock(blockId);
-      TachyonFile file = mTfs.getFile(fileId);
-      long fileLen = file.length();
-      Assert.assertEquals(100, fileLen);
-    } finally {
-      handler.close();
-    }
-    return;
-  }
-
-  @Test
-  public void readExceptionTest() throws IOException {
-    int fileId = TestUtils.createByteFile(mTfs, TestUtils.uniqPath(), WriteType.MUST_CACHE, 100);
-    TachyonFile file = mTfs.getFile(fileId);
-    String blockDir = file.getLocalDirectory(0);
-    BlockHandler handler = BlockHandler.get(blockDir);
-    try {
-      Exception exception = null;
-      try {
-        handler.read(101, 10);
-      } catch (IOException e) {
-        exception = e;
-      }
-      Assert.assertEquals("offset(101) is larger than file length(100)",
-          exception.getMessage());
-      try {
-        handler.read(10, 100);
-      } catch (IOException e) {
-        exception = e;
-      }
-      Assert.assertEquals("offset(10) plus length(100) is larger than file length(100)",
-          exception.getMessage());
-    } finally {
-      handler.close();
-    }
-    return;
-  }
-
   /**
    * To test reading, we make sure we get the correct results for the given bounds
-   * 
+   *
    * @param fileLength the length of the file
    * @return A list of pairs, where the first item in each pair is a pair of offset-length bounds,
    *         and the second is the expected result as a ByteBuffer
@@ -159,21 +75,46 @@ public class BlockHandlerLocalTest {
   }
 
   @Test
+  public void readExceptionTest() throws IOException {
+    int fileId = TestUtils.createByteFile(mTfs, TestUtils.uniqPath(), WriteType.MUST_CACHE, 100);
+    TachyonFile file = mTfs.getFile(fileId);
+    String blockDir = file.getLocalDirectory(0);
+    BlockReader blockReader = new BlockReader(blockDir);
+    try {
+      Exception exception = null;
+      try {
+        blockReader.read(101, 10);
+      } catch (IOException e) {
+        exception = e;
+      }
+      Assert.assertEquals("offset(101) is larger than file length(100)", exception.getMessage());
+      try {
+        blockReader.read(10, 100);
+      } catch (IOException e) {
+        exception = e;
+      }
+      Assert.assertEquals("offset(10) plus length(100) is larger than file length(100)",
+          exception.getMessage());
+    } finally {
+      blockReader.close();
+    }
+  }
+
+  @Test
   public void readTest() throws IOException {
     int fileId = TestUtils.createByteFile(mTfs, TestUtils.uniqPath(), WriteType.MUST_CACHE, 100);
     TachyonFile file = mTfs.getFile(fileId);
     String blockDir = file.getLocalDirectory(0);
-    BlockHandler handler = BlockHandler.get(blockDir);
     List<Pair<Pair<Long, Long>, ByteBuffer>> readBounds = generateReadTestBounds(100);
+    BlockReader blockReader = new BlockReader(blockDir);
     try {
       for (Pair<Pair<Long, Long>, ByteBuffer> bound : readBounds) {
         Assert.assertEquals(bound.getSecond(),
-            handler.read(bound.getFirst().getFirst(), bound.getFirst().getSecond()));
+            blockReader.read(bound.getFirst().getFirst(), bound.getFirst().getSecond()));
       }
     } finally {
-      handler.close();
+      blockReader.close();
     }
-    return;
   }
 
   @Test
@@ -181,21 +122,21 @@ public class BlockHandlerLocalTest {
     int fileId = TestUtils.createByteFile(mTfs, TestUtils.uniqPath(), WriteType.MUST_CACHE, 100);
     TachyonFile file = mTfs.getFile(fileId);
     String blockDir = file.getLocalDirectory(0);
-    BlockHandler handler = BlockHandler.get(blockDir);
+    BlockReader blockReader = new BlockReader(blockDir);
     List<Pair<Pair<Long, Long>, ByteBuffer>> readBounds = generateReadTestBounds(100);
     try {
       for (Pair<Pair<Long, Long>, ByteBuffer> bound : readBounds) {
-        List<ByteChannel> channels =
-            handler.getChannels(bound.getFirst().getFirst(), bound.getFirst().getSecond());
+        List<FileChannel> channels =
+            blockReader.getChannels(bound.getFirst().getFirst(), bound.getFirst().getSecond());
         ByteBuffer buf = ByteBuffer.allocate(bound.getSecond().remaining());
-        for (ByteChannel chan : channels) {
+        for (FileChannel chan : channels) {
           chan.read(buf);
         }
         buf.flip();
         Assert.assertEquals(bound.getSecond(), buf);
       }
     } finally {
-      handler.close();
+      blockReader.close();
     }
   }
 }

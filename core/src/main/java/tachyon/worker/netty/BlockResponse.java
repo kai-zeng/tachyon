@@ -15,25 +15,19 @@
 
 package tachyon.worker.netty;
 
-import java.io.File;
 import java.nio.ByteBuffer;
-import java.nio.channels.ByteChannel;
-import java.nio.channels.FileChannel;
 import java.util.List;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandlerContext;
-import io.netty.channel.DefaultFileRegion;
 import io.netty.handler.codec.MessageToMessageEncoder;
 
 import com.google.common.primitives.Longs;
 import com.google.common.primitives.Shorts;
 
-import tachyon.conf.UserConf;
 import tachyon.conf.WorkerConf;
-import tachyon.util.PageUtils;
-import tachyon.worker.BlockHandler;
+import tachyon.worker.BlockReader;
 import tachyon.worker.nio.DataServerMessage;
 
 /**
@@ -61,23 +55,19 @@ public final class BlockResponse {
     protected void encode(final ChannelHandlerContext ctx, final BlockResponse msg,
         final List<Object> out) throws Exception {
       out.add(createHeader(ctx, msg));
-      BlockHandler handler = msg.getHandler();
-      if (handler != null) {
-        try {
-          switch (WorkerConf.get().NETTY_FILE_TRANSFER_TYPE) {
-            case MAPPED:
-              ByteBuffer data = handler.read(msg.getOffset(), msg.getLength());
-              out.add(Unpooled.wrappedBuffer(data));
-              break;
-            case TRANSFER:
-              out.addAll(handler.getChannels(msg.getOffset(), msg.getLength()));
-              break;
-            default:
-              throw new AssertionError("Unknown file transfer type: "
-                  + WorkerConf.get().NETTY_FILE_TRANSFER_TYPE);
-          }
-        } finally {
-          handler.close();
+      BlockReader blockReader = msg.getBlockReader();
+      if (blockReader != null) {
+        switch (WorkerConf.get().NETTY_FILE_TRANSFER_TYPE) {
+          case MAPPED:
+            ByteBuffer data = blockReader.read(msg.getOffset(), msg.getLength());
+            out.add(Unpooled.wrappedBuffer(data));
+            break;
+          case TRANSFER:
+            out.addAll(blockReader.getChannels(msg.getOffset(), msg.getLength()));
+            break;
+          default:
+            throw new AssertionError("Unknown file transfer type: "
+                + WorkerConf.get().NETTY_FILE_TRANSFER_TYPE);
         }
       }
     }
@@ -96,21 +86,21 @@ public final class BlockResponse {
 
   private final long mLength;
 
-  private final BlockHandler mHandler;
+  private final BlockReader mBlockReader;
 
-  public BlockResponse(long blockId, long offset, long length, BlockHandler handler) {
+  public BlockResponse(long blockId, long offset, long length, BlockReader blockReader) {
     mBlockId = blockId;
     mOffset = offset;
     mLength = length;
-    mHandler = handler;
+    mBlockReader = blockReader;
   }
 
   public long getBlockId() {
     return mBlockId;
   }
 
-  public BlockHandler getHandler() {
-    return mHandler;
+  public BlockReader getBlockReader() {
+    return mBlockReader;
   }
 
   public long getLength() {

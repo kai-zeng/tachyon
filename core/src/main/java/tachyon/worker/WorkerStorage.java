@@ -910,13 +910,9 @@ public class WorkerStorage {
    * later. Its cleanup only happens while formating the mTachyonFS.
    */
   private void swapoutOrphanBlocks(StorageDir storageDir, long blockId) throws IOException {
-    BlockHandler bh = storageDir.getBlockHandler(blockId);
+    BlockOperator blockOperator = new BlockOperator(storageDir.getBlockDirPath(blockId).toString());
     String orphanBlockDirPath = CommonUtils.concat(mUfsOrphansFolder, blockId);
-    try {
-      bh.copyToUnderFS(mUfs, orphanBlockDirPath);
-    } finally {
-      bh.close();
-    }
+    blockOperator.copyToUnderFS(mUfs, orphanBlockDirPath);
   }
 
   /**

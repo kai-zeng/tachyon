@@ -17,9 +17,7 @@ package tachyon.worker.hierarchy;
 import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.util.ArrayList;
 import java.util.HashSet;
-import java.util.List;
 
 import junit.framework.Assert;
 
@@ -33,7 +31,7 @@ import tachyon.UnderFileSystem;
 import tachyon.conf.WorkerConf;
 import tachyon.thrift.InvalidPathException;
 import tachyon.util.CommonUtils;
-import tachyon.worker.BlockHandler;
+import tachyon.worker.BlockAppender;
 
 public class StorageTierTest {
 
@@ -100,14 +98,13 @@ public class StorageTierTest {
 
   private void createBlockFile(StorageDir dir, long blockId, int blockSize) throws IOException {
     byte[] buf = TestUtils.getIncreasingByteArray(blockSize);
-    BlockHandler bhSrc =
-        BlockHandler.get(dir.getUserTempBlockPath(USER_ID, blockId).toString());
     dir.requestSpace(USER_ID, blockSize);
     dir.updateTempBlockAllocatedBytes(USER_ID, blockId, blockSize);
+    BlockAppender blockAppender = new BlockAppender(dir.getUserTempBlockPath(USER_ID, blockId).toString());
     try {
-      bhSrc.append(ByteBuffer.wrap(buf));
+      blockAppender.append(ByteBuffer.wrap(buf));
     } finally {
-      bhSrc.close();
+      blockAppender.close();
     }
     dir.cacheBlock(USER_ID, blockId);
   }

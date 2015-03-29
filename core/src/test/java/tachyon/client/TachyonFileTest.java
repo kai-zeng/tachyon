@@ -15,7 +15,6 @@
 package tachyon.client;
 
 import java.io.IOException;
-import java.io.RandomAccessFile;
 
 import junit.framework.Assert;
 
@@ -29,7 +28,7 @@ import tachyon.conf.WorkerConf;
 import tachyon.master.LocalTachyonCluster;
 import tachyon.thrift.ClientBlockInfo;
 import tachyon.util.CommonUtils;
-import tachyon.worker.BlockHandler;
+import tachyon.worker.BlockReader;
 
 /**
  * Unit tests for tachyon.client.TachyonFile.
@@ -187,9 +186,12 @@ public class TachyonFileTest {
       Assert.assertEquals(1, file.getNumberOfBlocks());
       String localDir = file.getLocalDirectory(0);
       Assert.assertNotNull("Block not found on local ramdisk", localDir);
-      BlockHandler bh = BlockHandler.get(localDir);
-      Assert.assertEquals(TestUtils.getIncreasingByteBuffer(k), bh.read(0, k));
-      bh.close();
+      BlockReader blockReader = new BlockReader(localDir);
+      try {
+        Assert.assertEquals(TestUtils.getIncreasingByteBuffer(k), blockReader.read(0, k));
+      } finally {
+        blockReader.close();
+      }
     }
   }
 
