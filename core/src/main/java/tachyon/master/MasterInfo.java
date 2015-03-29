@@ -900,7 +900,8 @@ public class MasterInfo extends ImageWriter {
    * @param workerUsedBytes how many bytes are now used in the worker
    * @param storageDirId the id of the storageDir where the block pages were cached
    * @param blockId the id of the block being cached
-   * @param length the length of the block being cached
+   * @param length the length of the block being cached. This is only used if we are adding a new
+   *        block to the file, so the length returned by partially re-caching a block won't matter.
    * @return the dependency id of the file if it has not been checkpointed. -1 means the file either
    *         does not have dependency or has already been checkpointed.
    * @throws FileDoesNotExistException
