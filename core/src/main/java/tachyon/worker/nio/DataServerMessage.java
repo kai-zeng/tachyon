@@ -87,20 +87,6 @@ public class DataServerMessage {
   }
 
   /**
-   * Create a block response message specified by the block's id. If <code>toSend</code> is true, it
-   * will prepare the data to be sent, otherwise the message is used to receive data.
-   * 
-   * @param toSend If true the message is to send the data, otherwise it's used to receive data.
-   * @param blockId The id of the block
-   * @param data The data of the message
-   * @return The created block response message
-   */
-  public static DataServerMessage createBlockResponseMessage(boolean toSend, long blockId,
-      ByteBuffer data) {
-    return createBlockResponseMessage(toSend, blockId, 0, -1, data);
-  }
-
-  /**
    * Create a block response message specified by the block's id, the offset and the length. If
    * <code>toSend</code> is true, it will prepare the data to be sent, otherwise the message is used
    * to receive data. If <code>len</code> is -1, it means response the data from offset to the

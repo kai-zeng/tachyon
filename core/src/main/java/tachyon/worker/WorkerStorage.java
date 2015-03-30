@@ -218,19 +218,23 @@ public class WorkerStorage {
               }
             }
             os = mCheckpointUfs.create(midPath, (int) fileInfo.getBlockSizeByte());
+            WritableByteChannel writableByteChannel = Channels.newChannel(os);
             for (int k = 0; k < fileInfo.blockIds.size(); k ++) {
-              ByteBuffer byteBuffer = storageDirs[k].getBlockData(fileInfo.blockIds.get(k), 0, -1);
-              byte[] buf = new byte[16 * Constants.KB];
-              int writeLen;
-              while (byteBuffer.remaining() > 0) {
-                if (byteBuffer.remaining() >= buf.length) {
-                  writeLen = buf.length;
-                } else {
-                  writeLen = byteBuffer.remaining();
-                }
-                byteBuffer.get(buf, 0, writeLen);
-                os.write(buf, 0, writeLen);
+              ByteBuffer byteBuffer = null;
+              if (k == fileInfo.getBlockIdsSize() - 1) {
+                // Its the last block, so we read up to the length of the last block
+                byteBuffer =
+                    storageDirs[k].getBlockData(fileInfo.blockIds.get(k), 0,
+                        (int) (fileInfo.getLength() - (k * fileInfo.getBlockSizeByte())));
+              } else {
+                byteBuffer =
+                    storageDirs[k].getBlockData(fileInfo.blockIds.get(k), 0,
+                        (int) fileInfo.getBlockSizeByte());
               }
+              if (byteBuffer == null) {
+                throw new IOException("Could not read entire block from storage dir");
+              }
+              writableByteChannel.write(byteBuffer);
               CommonUtils.cleanDirectBuffer(byteBuffer);
             }
           } finally {
