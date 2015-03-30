@@ -204,7 +204,7 @@ public class DataServerTest {
    * Requests a block from the server. This call will read the full block.
    */
   private DataServerMessage request(final ClientBlockInfo block) throws IOException {
-    return request(block, 0, -1);
+    return request(block, 0, block.getLength());
   }
 
   /**
