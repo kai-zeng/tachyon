@@ -371,7 +371,7 @@ public class TachyonFile implements Comparable<TachyonFile> {
    * @throws IOException
    */
   TachyonByteBuffer readLocalByteBuffer(int blockIndex) throws IOException {
-    return readLocalByteBuffer(blockIndex, 0, -1);
+    return readLocalByteBuffer(blockIndex, 0, getClientBlockInfo(blockIndex).getLength());
   }
 
   /**
@@ -379,7 +379,7 @@ public class TachyonFile implements Comparable<TachyonFile> {
    * 
    * @param blockIndex The id of the block.
    * @param offset The start position to read.
-   * @param len The length to read. -1 represents read the whole block.
+   * @param len The length to read
    * @return <code>TachyonByteBuffer</code> containing the block.
    * @throws IOException
    */
@@ -388,8 +388,8 @@ public class TachyonFile implements Comparable<TachyonFile> {
     if (offset < 0) {
       throw new IOException("Offset can not be negative: " + offset);
     }
-    if (len < 0 && len != -1) {
-      throw new IOException("Length can not be negative except -1: " + len);
+    if (len < 0) {
+      throw new IOException("Length can not be negative: " + len);
     }
 
     ClientBlockInfo info = getClientBlockInfo(blockIndex);

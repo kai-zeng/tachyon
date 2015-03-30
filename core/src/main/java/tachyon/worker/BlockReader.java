@@ -74,24 +74,16 @@ public final class BlockReader implements Closeable {
    *
    * @param offset the offset into the block
    * @param length the length of data to read, -1 represents reading the rest of the block
-   * @return a sequence of channels that will produce the requested data when read in order
-   * @throws IOException if the bounds are out of range of the block or there aren't enough channels
-   *         to cover the entire range
+   * @return a sequence of channels that will produce the requested data when read in order, or null
+   *         if all the requested data is not in the block directory
+   * @throws IOException if the bounds are out of range of the block or some other I/O error
    */
   public List<FileChannel> getChannels(long offset, long length) throws IOException {
     String error = null;
-    if (offset > getSize()) {
-      error = String.format("offset(%d) is larger than file length(%d)", offset, getSize());
-    } else if (length != -1 && offset + length > getSize()) {
-      error =
-          String.format("offset(%d) plus length(%d) is larger than file length(%d)", offset,
-              length, getSize());
-    }
-    if (error != null) {
-      throw new IOException(error);
-    }
-    if (length == -1) {
-      length = getSize() - offset;
+    if (offset < 0) {
+      throw new IOException("Offset cannot be negative");
+    } else if (length < 0) {
+      throw new IOException("Length cannot be negative");
     }
 
     List<FileChannel> ret = new ArrayList<FileChannel>();
@@ -102,13 +94,13 @@ public final class BlockReader implements Closeable {
       long relativePos = offset - PageUtils.getPageOffset(pageId);
       long bytesToRead = Math.min(UserConf.get().PAGE_SIZE_BYTE - relativePos, endPos - offset);
       // Get the correct channel and seek to the correct starting position. If the required page is
-      // not here, we close all the existing channels and throw
+      // not here, we close all the existing channels and return null
       File pageFile = mPageFiles.get(pageId);
       if (pageFile == null) {
         for (FileChannel chan : ret) {
           chan.close();
         }
-        throw new IOException("BlockReader could not read requested page with id " + pageId);
+        return null;
       }
       FileChannel addChannel =
           mCloser.register(FileChannel.open(pageFile.toPath(), StandardOpenOption.READ));
@@ -134,14 +126,14 @@ public final class BlockReader implements Closeable {
    * 
    * @param offset the offset to start reading at
    * @param length the number of bytes to read
-   * @return a ByteBuffer containing the requested data
-   * @throws IOException if the requested bounds are out of range or the entire range is not covered
-   *         by the BlockReader
+   * @return a ByteBuffer containing the requested data, or null if all the requested data is not in
+   *         the block directory
+   * @throws IOException if the requested bounds are out of range
    */
   public ByteBuffer read(long offset, long length) throws IOException {
     List<FileChannel> channels = getChannels(offset, length);
-    if (length == -1) {
-      length = getSize() - offset;
+    if (channels == null) {
+      return null;
     }
     // If there is just one channel, we can return a mapped byte-buffer of just the requested
     // content of the file

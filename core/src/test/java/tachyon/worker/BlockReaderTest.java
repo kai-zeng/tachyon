@@ -51,10 +51,8 @@ public class BlockReaderTest {
    */
   private List<Pair<Pair<Long, Long>, ByteBuffer>> generateReadTestBounds(long fileLength) {
     List<Pair<Pair<Long, Long>, ByteBuffer>> ret = new ArrayList<Pair<Pair<Long, Long>, ByteBuffer>>();
-    // Read the whole file with and without -1 as the length
-    ret.add(new Pair<Pair<Long, Long>, ByteBuffer>(new Pair<Long, Long>((long) 0, fileLength), TestUtils
-        .getIncreasingByteBuffer((int) fileLength)));
-    ret.add(new Pair<Pair<Long, Long>, ByteBuffer>(new Pair<Long, Long>((long) 0, (long) -1), TestUtils
+    // Read the whole file
+    ret.add(new Pair<Pair<Long, Long>, ByteBuffer>(new Pair<Long, Long>(0L, fileLength), TestUtils
         .getIncreasingByteBuffer((int) fileLength)));
     // Read an entire page
     long offset = 0;
@@ -71,6 +69,8 @@ public class BlockReaderTest {
     length = PAGE_SIZE / 2;
     ret.add(new Pair<Pair<Long, Long>, ByteBuffer>(new Pair<Long, Long>(offset, length), TestUtils
         .getIncreasingByteBuffer((int) offset, (int) length)));
+    // Read past the end of the file
+    ret.add(new Pair<Pair<Long, Long>, ByteBuffer>(new Pair<Long, Long>(0L, fileLength + 1), null));
     return ret;
   }
 
@@ -83,18 +83,17 @@ public class BlockReaderTest {
     try {
       Exception exception = null;
       try {
-        blockReader.read(101, 10);
+        blockReader.read(-1, 10);
       } catch (IOException e) {
         exception = e;
       }
-      Assert.assertEquals("offset(101) is larger than file length(100)", exception.getMessage());
+      Assert.assertEquals("Offset cannot be negative", exception.getMessage());
       try {
-        blockReader.read(10, 100);
+        blockReader.read(10, -1);
       } catch (IOException e) {
         exception = e;
       }
-      Assert.assertEquals("offset(10) plus length(100) is larger than file length(100)",
-          exception.getMessage());
+      Assert.assertEquals("Length cannot be negative", exception.getMessage());
     } finally {
       blockReader.close();
     }
@@ -128,11 +127,14 @@ public class BlockReaderTest {
       for (Pair<Pair<Long, Long>, ByteBuffer> bound : readBounds) {
         List<FileChannel> channels =
             blockReader.getChannels(bound.getFirst().getFirst(), bound.getFirst().getSecond());
-        ByteBuffer buf = ByteBuffer.allocate(bound.getSecond().remaining());
-        for (FileChannel chan : channels) {
-          chan.read(buf);
+        ByteBuffer buf = null;
+        if (channels != null) {
+          buf = ByteBuffer.allocate(bound.getSecond().remaining());
+          for (FileChannel chan : channels) {
+            chan.read(buf);
+          }
+          buf.flip();
         }
-        buf.flip();
         Assert.assertEquals(bound.getSecond(), buf);
       }
     } finally {

@@ -89,7 +89,7 @@ public class StorageDirTest {
     byte[] buf = TestUtils.getIncreasingByteArray(blockSize);
     ByteBuffer dataBuf = mSrcDir.getBlockData(blockId, blockSize / 2, blockSize / 2);
     Assert.assertEquals(ByteBuffer.wrap(buf, blockSize / 2, blockSize / 2), dataBuf);
-    dataBuf = mSrcDir.getBlockData(blockId, 0, -1);
+    dataBuf = mSrcDir.getBlockData(blockId, 0, blockSize);
     Assert.assertEquals(ByteBuffer.wrap(buf), dataBuf);
   }
 

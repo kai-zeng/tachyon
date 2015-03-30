@@ -358,8 +358,9 @@ public class RemoteBlockInStream extends BlockInStream {
 
       LOG.info("Data " + blockId + " to remote machine " + address + " sent");
 
+      // Since we're setting toSend to false, the other arguments don't really matter
       DataServerMessage recvMsg =
-          DataServerMessage.createBlockResponseMessage(false, blockId, null);
+          DataServerMessage.createBlockResponseMessage(false, blockId, 0, 0, null);
       while (!recvMsg.isMessageReady()) {
         int numRead = recvMsg.recv(socketChannel);
         if (numRead == -1) {
