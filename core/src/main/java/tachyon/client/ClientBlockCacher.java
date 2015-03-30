@@ -67,6 +67,9 @@ public class ClientBlockCacher implements Closeable {
   public void writePages(int startPageId, ByteBuffer data) throws IOException {
     // We leave it to the BlockCacher to verify the bounds, we just request more space from the
     // worker if necessary
+    if (mClosed) {
+      throw new IOException("Cannot write more pages, ClientBlockCacher is closed");
+    }
     long bytesToWrite = data.remaining();
     long newLen = mWrittenBytes + bytesToWrite;
     if (newLen > mAvailableBytes) {
@@ -87,6 +90,14 @@ public class ClientBlockCacher implements Closeable {
   public void close() throws IOException {
     if (!mClosed) {
       mFile.mTachyonFS.cacheBlock(mBlockId);
+      mClosed = true;
+    }
+  }
+
+  public void cancel() throws IOException {
+    if (!mClosed) {
+      mFile.mTachyonFS.cancelBlock(mBlockId);
+      LOG.info(String.format("Canceled output of block. blockId(%d)", mBlockId));
       mClosed = true;
     }
   }
