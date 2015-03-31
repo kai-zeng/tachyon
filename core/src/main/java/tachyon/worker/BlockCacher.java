@@ -37,8 +37,6 @@ import tachyon.util.PageUtils;
 public final class BlockCacher {
   // The directory being written to
   private File mBlockDir;
-  // The metadata of the existing block
-  private ClientBlockInfo mBlockInfo;
   // A set of page ids that have already been written to the directory
   Set<Integer> mExistingPages;
 
@@ -47,12 +45,10 @@ public final class BlockCacher {
    * 
    * @param blockDir the directory to add pages to, which will be created if it doesn't already
    *        exist
-   * @param blockInfo the block metadata for the block being cached
    * @throws IOException if the given directory is invalid or an I/O error occurs
    */
-  public BlockCacher(String blockDir, ClientBlockInfo blockInfo) throws IOException {
+  public BlockCacher(String blockDir) throws IOException {
     mBlockDir = new File(Preconditions.checkNotNull(blockDir));
-    mBlockInfo = Preconditions.checkNotNull(blockInfo);
     if (!mBlockDir.exists()) {
       mBlockDir.mkdirs();
     } else if (mBlockDir.isFile()) {
@@ -69,23 +65,24 @@ public final class BlockCacher {
   /**
    * Write the given contiguous range pages to the directory. The range is determined by the start
    * page id and the number of bytes left in the given ByteBuffer.
-   * 
+   *
+   * @param blockInfo the block metadata
    * @param startPageId the first page in the range
    * @param data the data to write, which will be correctly split up across the page files
-   * @throws IOException if the given range is invalid or an I/O
+   * @throws java.io.IOException if the given range is invalid or an I/O
    *         error occurs
    */
-  public void writePages(int startPageId, ByteBuffer data) throws IOException {
-    int numPages = PageUtils.getNumPages(mBlockInfo.getLength());
+  public void writePages(ClientBlockInfo blockInfo, int startPageId, ByteBuffer data)
+      throws IOException {
     long startOffset = PageUtils.getPageOffset(startPageId);
     long endOffset = startOffset + data.remaining();
     if (startPageId < 0) {
       throw new IOException("Start page id " + startPageId + " cannot be less than 0");
-    } else if (endOffset > mBlockInfo.getLength()) {
+    } else if (endOffset > blockInfo.getLength()) {
       throw new IOException(String.format(
-          "Start page {} and data length {} is invalid for block of length {}", startPageId,
-          data.remaining(), mBlockInfo.getLength()));
-    } else if (endOffset != mBlockInfo.getLength()
+          "Start page %s and data length %s is invalid for block of length %s", startPageId,
+          data.remaining(), blockInfo.getLength()));
+    } else if (endOffset != blockInfo.getLength()
         && PageUtils.getPageOffset(PageUtils.getPageId(endOffset)) != endOffset) {
       throw new IOException("End position " + endOffset
           + " does not lie at a page boundary or at the end of the block");
@@ -100,7 +97,7 @@ public final class BlockCacher {
       if (mExistingPages.add(pageId)) {
         FileChannel channel =
             FileChannel.open(new File(mBlockDir, PageUtils.getPageFilename(pageId)).toPath(),
-                StandardOpenOption.WRITE);
+                StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE, StandardOpenOption.READ);
         try {
           ByteBuffer outBuffer = channel.map(FileChannel.MapMode.READ_WRITE, 0, bytesToWrite);
           outBuffer.put(writeSlice);

@@ -22,7 +22,11 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 import tachyon.TestUtils;
+import tachyon.conf.WorkerConf;
 import tachyon.master.LocalTachyonCluster;
+import tachyon.util.CommonUtils;
+import tachyon.util.PageUtils;
+import tachyon.worker.BlockReader;
 
 /**
  * Unit tests for <code>tachyon.client.BlockInStream</code>.
@@ -30,8 +34,11 @@ import tachyon.master.LocalTachyonCluster;
 public class BlockInStreamTest {
   private static final int MIN_LEN = 0;
   private static final int MAX_LEN = 255;
-  private static final int MEAN = (MIN_LEN + MAX_LEN) / 2;
   private static final int DELTA = 33;
+
+  private static final int CLUSTER_SIZE = 50000;
+  private static final int BLOCK_SIZE = 50;
+  private static final int PAGE_SIZE = 10;
 
   private static LocalTachyonCluster sLocalTachyonCluster = null;
   private static TachyonFS sTfs = null;
@@ -40,170 +47,182 @@ public class BlockInStreamTest {
   public static final void afterClass() throws Exception {
     sLocalTachyonCluster.stop();
     System.clearProperty("tachyon.user.quota.unit.bytes");
+    System.clearProperty("tachyon.user.default.block.size.byte");
+    System.clearProperty("tachyon.user.page.size.byte");
+    System.clearProperty("tachyon.user.remote.read.buffer.size.byte");
+
   }
 
   @BeforeClass
   public static final void beforeClass() throws IOException {
-    System.setProperty("tachyon.user.quota.unit.bytes", "1000");
-    sLocalTachyonCluster = new LocalTachyonCluster(10000);
+    System.setProperty("tachyon.user.quota.unit.bytes", String.valueOf(DELTA));
+    System.setProperty("tachyon.user.default.block.size.byte", String.valueOf(BLOCK_SIZE));
+    System.setProperty("tachyon.user.page.size.byte", String.valueOf(PAGE_SIZE));
+    System.setProperty("tachyon.user.remote.read.buffer.size.byte", String.valueOf(PAGE_SIZE));
+    sLocalTachyonCluster = new LocalTachyonCluster(CLUSTER_SIZE);
     sLocalTachyonCluster.start();
     sTfs = sLocalTachyonCluster.getClient();
   }
 
   /**
-   * Test <code>void read()</code>.
+   * Reading the entire file should return correct results. If CACHE, the file should always be in
+   * memory afterwards. If NO_CACHE, it shouldn't change the in-memoryness. We read it in every
+   * possible way, (with read(), read(byte[]), and read(byte[], off, len)).
    */
   @Test
-  public void readTest1() throws IOException {
+  public void readWholeFileTest() throws IOException {
     String uniqPath = TestUtils.uniqPath();
     for (int k = MIN_LEN; k <= MAX_LEN; k += DELTA) {
-      for (WriteType op : WriteType.values()) {
-        int fileId = TestUtils.createByteFile(sTfs, uniqPath + "/file_" + k + "_" + op, op, k);
-
-        TachyonFile file = sTfs.getFile(fileId);
-        InStream is =
-            (k < MEAN ? file.getInStream(ReadType.CACHE) : file.getInStream(ReadType.NO_CACHE));
-        if (k == 0) {
-          Assert.assertTrue(is instanceof EmptyBlockInStream);
-        } else {
-          Assert.assertTrue(is instanceof BlockInStream);
+      for (WriteType writeOp: WriteType.values()) {
+        for (ReadType readOp : ReadType.values()) {
+          for (int readMechanism = 0; readMechanism < 3; readMechanism++) {
+            int fileId =
+                TestUtils.createByteFile(sTfs, String.format("%s/file_%s_%s_%s_%s", uniqPath, k,
+                    writeOp, readOp, readMechanism), writeOp, k);
+            TachyonFile file = sTfs.getFile(fileId);
+            InStream is = file.getInStream(readOp);
+            byte[] ret = new byte[k];
+            if (readMechanism == 0) {
+              int value = is.read();
+              int cnt = 0;
+              while (value != -1) {
+                Assert.assertTrue(value >= 0);
+                Assert.assertTrue(value < 256);
+                ret[cnt ++] = (byte) value;
+                value = is.read();
+              }
+              Assert.assertEquals(k, cnt);
+            } else if (readMechanism == 1) {
+              is.read(ret);
+            } else {
+              // Try reading in 2 parts just to exercise the offset feature
+              is.read(ret, 0, k / 2);
+              is.read(ret, k / 2, k - k / 2);
+            }
+            is.close();
+            Assert.assertTrue(String.format(
+                "Failed read with k = %s, writeOp = %s, readOp = %s, readMechanism = %s", k,
+                writeOp, readOp, readMechanism), TestUtils.equalIncreasingByteArray(k, ret));
+            if (k == 0) {
+              Assert.assertTrue(file.isInMemory());
+            } else if (readOp.isCache()) {
+              Assert.assertTrue(file.isInMemory());
+            } else {
+              Assert.assertEquals(String.format("Failed with writeOp = %s", writeOp),
+                  writeOp.isCache(), file.isInMemory());
+            }
+          }
         }
-        byte[] ret = new byte[k];
-        int value = is.read();
-        int cnt = 0;
-        while (value != -1) {
-          Assert.assertTrue(value >= 0);
-          Assert.assertTrue(value < 256);
-          ret[cnt ++] = (byte) value;
-          value = is.read();
-        }
-        Assert.assertEquals(cnt, k);
-        Assert.assertTrue(TestUtils.equalIncreasingByteArray(k, ret));
-        is.close();
-
-        is = (k < MEAN ? file.getInStream(ReadType.CACHE) : file.getInStream(ReadType.NO_CACHE));
-        if (k == 0) {
-          Assert.assertTrue(is instanceof EmptyBlockInStream);
-        } else {
-          Assert.assertTrue(is instanceof BlockInStream);
-        }
-        ret = new byte[k];
-        value = is.read();
-        cnt = 0;
-        while (value != -1) {
-          Assert.assertTrue(value >= 0);
-          Assert.assertTrue(value < 256);
-          ret[cnt ++] = (byte) value;
-          value = is.read();
-        }
-        Assert.assertEquals(cnt, k);
-        Assert.assertTrue(TestUtils.equalIncreasingByteArray(k, ret));
-        is.close();
       }
     }
   }
 
   /**
-   * Test <code>void read(byte[] b)</code>.
+   * Read first with NO_CACHE and then with CACHE. Both reads should be valid, and the first read
+   * shouldn't change the inMemory status while the second should.
    */
   @Test
-  public void readTest2() throws IOException {
+  public void readTwiceTest() throws IOException {
     String uniqPath = TestUtils.uniqPath();
-    for (int k = MIN_LEN; k <= MAX_LEN; k += DELTA) {
-      for (WriteType op : WriteType.values()) {
-        int fileId = TestUtils.createByteFile(sTfs, uniqPath + "/file_" + k + "_" + op, op, k);
+    int fileId = TestUtils.createByteFile(sTfs, uniqPath + "/file", WriteType.THROUGH, BLOCK_SIZE);
+    TachyonFile file = sTfs.getFile(fileId);
 
-        TachyonFile file = sTfs.getFile(fileId);
-        InStream is =
-            (k < MEAN ? file.getInStream(ReadType.CACHE) : file.getInStream(ReadType.NO_CACHE));
-        if (k == 0) {
-          Assert.assertTrue(is instanceof EmptyBlockInStream);
-        } else {
-          Assert.assertTrue(is instanceof BlockInStream);
-        }
-        byte[] ret = new byte[k];
-        Assert.assertEquals(k, is.read(ret));
-        Assert.assertTrue(TestUtils.equalIncreasingByteArray(k, ret));
-        is.close();
+    InStream is = file.getInStream(ReadType.NO_CACHE);
+    byte[] ret = new byte[BLOCK_SIZE];
+    is.read(ret);
+    is.close();
+    Assert.assertTrue(TestUtils.equalIncreasingByteArray(BLOCK_SIZE, ret));
+    Assert.assertFalse(file.isInMemory());
 
-        is = (k < MEAN ? file.getInStream(ReadType.CACHE) : file.getInStream(ReadType.NO_CACHE));
-        if (k == 0) {
-          Assert.assertTrue(is instanceof EmptyBlockInStream);
-        } else {
-          Assert.assertTrue(is instanceof BlockInStream);
-        }
-        ret = new byte[k];
-        Assert.assertEquals(k, is.read(ret));
-        Assert.assertTrue(TestUtils.equalIncreasingByteArray(k, ret));
-        is.close();
-      }
-    }
+    is = file.getInStream(ReadType.CACHE);
+    ret = new byte[BLOCK_SIZE];
+    is.read(ret);
+    is.close();
+    Assert.assertTrue(TestUtils.equalIncreasingByteArray(BLOCK_SIZE, ret));
+    Assert.assertTrue(file.isInMemory());
   }
 
   /**
-   * Test <code>void read(byte[] b, int off, int len)</code>.
+   * Reading only part of a block should only cache the pages that were read.
    */
   @Test
-  public void readTest3() throws IOException {
+  public void readPartialBlockTest() throws IOException {
     String uniqPath = TestUtils.uniqPath();
-    for (int k = MIN_LEN; k <= MAX_LEN; k += DELTA) {
-      for (WriteType op : WriteType.values()) {
-        int fileId = TestUtils.createByteFile(sTfs, uniqPath + "/file_" + k + "_" + op, op, k);
+    int fileId = TestUtils.createByteFile(sTfs, uniqPath + "/file", WriteType.THROUGH, BLOCK_SIZE);
+    TachyonFile file = sTfs.getFile(fileId);
 
-        TachyonFile file = sTfs.getFile(fileId);
-        InStream is =
-            (k < MEAN ? file.getInStream(ReadType.CACHE) : file.getInStream(ReadType.NO_CACHE));
-        if (k == 0) {
-          Assert.assertTrue(is instanceof EmptyBlockInStream);
-        } else {
-          Assert.assertTrue(is instanceof BlockInStream);
-        }
-        byte[] ret = new byte[k / 2];
-        Assert.assertEquals(k / 2, is.read(ret, 0, k / 2));
-        Assert.assertTrue(TestUtils.equalIncreasingByteArray(k / 2, ret));
-        is.close();
+    InStream is = file.getInStream(ReadType.CACHE);
+    int ret = is.read();
+    is.close();
+    Assert.assertEquals(0, ret);
 
-        is = (k < MEAN ? file.getInStream(ReadType.CACHE) : file.getInStream(ReadType.NO_CACHE));
-        if (k == 0) {
-          Assert.assertTrue(is instanceof EmptyBlockInStream);
-        } else {
-          Assert.assertTrue(is instanceof BlockInStream);
-        }
-        ret = new byte[k];
-        Assert.assertEquals(k, is.read(ret, 0, k));
-        Assert.assertTrue(TestUtils.equalIncreasingByteArray(k, ret));
-        is.close();
-      }
-    }
+    int lockBlockId = sTfs.getBlockLockId();
+    String blockDir = sTfs.lockBlock(file.getBlockId(0), lockBlockId);
+    Assert.assertNotNull(blockDir);
+    BlockReader blockReader = new BlockReader(blockDir);
+    Assert.assertEquals(PAGE_SIZE, blockReader.getSize());
+    Assert.assertEquals(TestUtils.getIncreasingByteBuffer(PAGE_SIZE), blockReader.read(0, PAGE_SIZE));
+  }
+
+  // TODO Figure out a way to test reading from remote workers (Seems like the local cluster can't
+  // have multiple workers, and if we cache it locally, the localBlockReader will pick up the read).
+
+  /**
+   * Test seeking, making sure the proper pages are correctly cached.
+   */
+  @Test
+  public void seekCachingTest() throws IOException {
+    String uniqPath = TestUtils.uniqPath();
+    int fileId = TestUtils.createByteFile(sTfs, uniqPath + "/file", WriteType.THROUGH, BLOCK_SIZE);
+    TachyonFile file = sTfs.getFile(fileId);
+
+    InStream is = file.getInStream(ReadType.CACHE);
+    int ret1 = is.read();
+    int seekPos = BLOCK_SIZE - PAGE_SIZE - 1;
+    is.seek(seekPos);
+    int ret2 = is.read();
+    is.close();
+    Assert.assertEquals(0, ret1);
+    Assert.assertEquals(seekPos, ret2);
+
+    int lockBlockId = sTfs.getBlockLockId();
+    String blockDir = sTfs.lockBlock(file.getBlockId(0), lockBlockId);
+    Assert.assertNotNull(blockDir);
+    BlockReader blockReader = new BlockReader(blockDir);
+    Assert.assertEquals(PAGE_SIZE * 2, blockReader.getSize());
+    Assert.assertEquals(TestUtils.getIncreasingByteBuffer(PAGE_SIZE), blockReader.read(0, PAGE_SIZE));
+    Assert.assertEquals(TestUtils.getIncreasingByteBuffer(seekPos - PAGE_SIZE + 1, PAGE_SIZE),
+        blockReader.read(seekPos - PAGE_SIZE + 1, PAGE_SIZE));
   }
 
   /**
-   * Test <code>long skip(long len)</code>.
+   * Test caching the same file with two different input streams, making sure the proper pages are
+   * correctly cached.
    */
   @Test
-  public void skipTest() throws IOException {
+  public void multipleInputStreamTest() throws IOException {
     String uniqPath = TestUtils.uniqPath();
-    for (int k = MIN_LEN + DELTA; k <= MAX_LEN; k += DELTA) {
-      for (WriteType op : WriteType.values()) {
-        int fileId = TestUtils.createByteFile(sTfs, uniqPath + "/file_" + k + "_" + op, op, k);
+    int fileId = TestUtils.createByteFile(sTfs, uniqPath + "/file", WriteType.THROUGH, BLOCK_SIZE);
+    TachyonFile file = sTfs.getFile(fileId);
 
-        TachyonFile file = sTfs.getFile(fileId);
-        InStream is =
-            (k < MEAN ? file.getInStream(ReadType.CACHE) : file.getInStream(ReadType.NO_CACHE));
-        Assert.assertTrue(is instanceof BlockInStream);
-        Assert.assertEquals(k / 2, is.skip(k / 2));
-        Assert.assertEquals(k / 2, is.read());
-        is.close();
+    InStream is1 = file.getInStream(ReadType.CACHE);
+    int ret1 = is1.read();
+    int skipPos = BLOCK_SIZE - PAGE_SIZE - 1;
+    is1.close();
+    InStream is2 = file.getInStream(ReadType.CACHE);
+    is2.skip(skipPos);
+    int ret2 = is2.read();
+    is2.close();
+    Assert.assertEquals(0, ret1);
+    Assert.assertEquals(skipPos, ret2);
 
-        is = (k < MEAN ? file.getInStream(ReadType.CACHE) : file.getInStream(ReadType.NO_CACHE));
-        Assert.assertTrue(is instanceof BlockInStream);
-        int t = k / 3;
-        Assert.assertEquals(t, is.skip(t));
-        Assert.assertEquals(t, is.read());
-        Assert.assertEquals(t, is.skip(t));
-        Assert.assertEquals(2 * t + 1, is.read());
-        is.close();
-      }
-    }
+    int lockBlockId = sTfs.getBlockLockId();
+    String blockDir = sTfs.lockBlock(file.getBlockId(0), lockBlockId);
+    Assert.assertNotNull(blockDir);
+    BlockReader blockReader = new BlockReader(blockDir);
+    Assert.assertEquals(PAGE_SIZE * 2, blockReader.getSize());
+    Assert.assertEquals(TestUtils.getIncreasingByteBuffer(PAGE_SIZE), blockReader.read(0, PAGE_SIZE));
+    Assert.assertEquals(TestUtils.getIncreasingByteBuffer(skipPos - PAGE_SIZE + 1, PAGE_SIZE),
+        blockReader.read(skipPos - PAGE_SIZE + 1, PAGE_SIZE));
   }
 }

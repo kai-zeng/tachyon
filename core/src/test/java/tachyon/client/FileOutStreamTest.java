@@ -50,7 +50,7 @@ public class FileOutStreamTest {
   public static final void beforeClass() throws IOException {
     System.setProperty("tachyon.user.quota.unit.bytes", "128");
     System.setProperty("tachyon.user.default.block.size.byte", "128");
-    sLocalTachyonCluster = new LocalTachyonCluster(10000);
+    sLocalTachyonCluster = new LocalTachyonCluster(20000);
     sLocalTachyonCluster.start();
     sTfs = sLocalTachyonCluster.getClient();
   }

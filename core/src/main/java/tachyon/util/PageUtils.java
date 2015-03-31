@@ -126,4 +126,15 @@ public class PageUtils {
     }
     return ret;
   }
+
+  /**
+   * Rounds the given byte offset to the nearest multiple of a page greater than or equal to it
+   *
+   * @param offset the byte offset to round up
+   * @return the rounded offset
+   */
+  public static long ceilingPageMultiple(long offset) {
+    final long pageSize = UserConf.get().PAGE_SIZE_BYTE;
+    return ((offset + pageSize - 1) / pageSize) * pageSize;
+  }
 }

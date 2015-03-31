@@ -28,7 +28,7 @@ import tachyon.thrift.ClientBlockInfo;
 import tachyon.worker.BlockCacher;
 
 /**
- * The ClientBlockCacher is used by RemoteBlockInStream to to re-cache a block on the local worker.
+ * The ClientBlockCacher is used by BlockInStream to to re-cache a block on the local worker.
  * It writes full pages in any order at any part of the block. Partial pages cannot be written since
  * pages cannot themselves be partially cached.
  */
@@ -47,24 +47,24 @@ public class ClientBlockCacher implements Closeable {
   // Whether the block was closed
   private boolean mClosed = false;
 
-  ClientBlockCacher(TachyonFile file, int blockIndex) throws IOException {
-    this(file, blockIndex, UserConf.get().QUOTA_UNIT_BYTES);
+  ClientBlockCacher(TachyonFile file, long blockId) throws IOException {
+    this(file, blockId, UserConf.get().QUOTA_UNIT_BYTES);
   }
 
-  ClientBlockCacher(TachyonFile file, int blockIndex, long initialBytes) throws IOException {
+  ClientBlockCacher(TachyonFile file, long blockId, long initialBytes) throws IOException {
     mFile = file;
-    ClientBlockInfo blockInfo = mFile.getClientBlockInfo(blockIndex);
-    mBlockId = blockInfo.getBlockId();
+    mBlockId = blockId;
     // Get a temporary worker directory to write to
     if (!mFile.mTachyonFS.hasLocalWorker()) {
       throw new IOException("The machine does not have any local worker.");
     }
     String blockDir = mFile.mTachyonFS.getLocalBlockTemporaryPath(mBlockId, initialBytes);
     mAvailableBytes += initialBytes;
-    mBlockCacher = new BlockCacher(blockDir, blockInfo);
+    mBlockCacher = new BlockCacher(blockDir);
   }
 
-  public void writePages(int startPageId, ByteBuffer data) throws IOException {
+  public void writePages(ClientBlockInfo blockInfo, int startPageId, ByteBuffer data)
+      throws IOException {
     // We leave it to the BlockCacher to verify the bounds, we just request more space from the
     // worker if necessary
     if (mClosed) {
@@ -82,7 +82,7 @@ public class ClientBlockCacher implements Closeable {
       }
     }
 
-    mBlockCacher.writePages(startPageId, data);
+    mBlockCacher.writePages(blockInfo, startPageId, data);
     mWrittenBytes += bytesToWrite;
   }
 
