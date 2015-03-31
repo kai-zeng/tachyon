@@ -98,4 +98,17 @@ public class PageUtilsTest {
     Assert.assertEquals(2, pages.get(1).intValue());
     Assert.assertEquals(3, pages.get(2).intValue());
   }
+
+  @Test
+  public void roundToPageMultipleTest() {
+    Assert.assertEquals(0, PageUtils.ceilingPageMultiple(0));
+
+    Assert.assertEquals(mPageSize, PageUtils.ceilingPageMultiple(mPageSize));
+    Assert.assertEquals(mPageSize, PageUtils.ceilingPageMultiple(mPageSize - 1));
+    Assert.assertEquals(2 * mPageSize, PageUtils.ceilingPageMultiple(mPageSize + 1));
+
+    Assert.assertEquals(10 * mPageSize, PageUtils.ceilingPageMultiple(10 * mPageSize));
+    Assert.assertEquals(10 * mPageSize, PageUtils.ceilingPageMultiple(10 * mPageSize - 1));
+    Assert.assertEquals(11 * mPageSize, PageUtils.ceilingPageMultiple(10 * mPageSize + 1));
+  }
 }
