@@ -161,7 +161,7 @@ public class TachyonFile implements Comparable<TachyonFile> {
     if (blocks.size() == 0) {
       return new EmptyBlockInStream(this, readType);
     } else if (blocks.size() == 1) {
-      return BlockInStream.get(this, readType, 0, mUFSConf);
+      return new BlockInStream(this, readType, 0, mUFSConf);
     }
 
     return new FileInStream(this, readType, mUFSConf);
@@ -420,7 +420,7 @@ public class TachyonFile implements Comparable<TachyonFile> {
    */
   TachyonByteBuffer readRemoteByteBuffer(ClientBlockInfo blockInfo) {
     // We call into the remote block in stream class to read a remote byte buffer
-    ByteBuffer buf = RemoteBlockInStream.readRemoteByteBuffer(mTachyonFS,
+    ByteBuffer buf = BlockInStream.readRemoteByteBuffer(mTachyonFS,
         blockInfo, 0, blockInfo.length);
     return (buf == null) ? null : new TachyonByteBuffer(mTachyonFS, buf, blockInfo.blockId, -1);
   }
