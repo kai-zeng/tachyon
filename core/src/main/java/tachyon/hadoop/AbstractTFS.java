@@ -407,7 +407,9 @@ abstract class AbstractTFS extends FileSystem {
     fromHdfsToTachyon(path);
     int fileId = mTFS.getFileId(path);
 
-    return new FSDataInputStream(new HdfsFileInputStream(mTFS, fileId,
+    TachyonFS customTFS = TachyonFS.get(mUri.getHost(), mUri.getPort(), isZookeeperMode());
+
+    return new FSDataInputStream(new HdfsFileInputStream(customTFS, fileId,
         Utils.getHDFSPath(path, mUnderFSAddress), getConf(), bufferSize));
   }
 
