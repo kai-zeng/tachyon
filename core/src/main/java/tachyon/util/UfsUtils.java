@@ -105,7 +105,7 @@ public class UfsUtils {
     LOG.debug("Loading ufs, address:" + ufsAddress + "; root path: " + ufsRootPath);
 
     // create the under FS handler (e.g. hdfs, local FS, s3 etc.)
-    UnderFileSystem ufs = UnderFileSystem.get(ufsAddress, tachyonConf);
+    UnderFileSystem ufs = UnderFileSystem.get(ufsAddress);
 
     // directory name to load, either the path parent or the actual path if it is a directory
     TachyonURI directoryName;
