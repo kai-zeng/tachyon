@@ -20,11 +20,13 @@ import java.io.InputStream;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
+import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.channels.SocketChannel;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -109,9 +111,8 @@ public class BlockInStream extends InStream {
   // the file would be mBlockInfo.offset + mBlockPos.
   private long mBlockPos = 0;
 
-  // A block reader for the portion of the block already cached locally. This is null if there is no
-  // block stored locally
-  private final BlockReader mLocalBlockReader;
+  // A mapping of pages stored locally. This is null if there is no block stored locally.
+  private final Map<Integer, MappedByteBuffer> mLocalBlocks;
 
   // A ByteBuffer storing a range of pages read remotely (or from the UnderFS). For caching
   // simplicity, the buffer can
@@ -158,15 +159,16 @@ public class BlockInStream extends InStream {
       }
     }
 
-    // Try to lock the block and get a local block reader
+    // Try to lock the block and get a local block reader. We will unlock the block once the stream
+    // is closed.
     mBlockLockId = mTachyonFS.getBlockLockId();
     String localBlockDir = mTachyonFS.lockBlock(mBlockInfo.getBlockId(), mBlockLockId);
     if (localBlockDir == null) {
       // There is no local block directory
-      mLocalBlockReader = null;
+      mLocalBlocks = null;
     } else {
-      // Create a local block reader
-      mLocalBlockReader = new BlockReader(localBlockDir);
+      // Create a local block reader and get the mapped pages
+      mLocalBlocks = (new BlockReader(localBlockDir)).getMappedPages();
     }
 
     // Set the UnderFS configuration
@@ -209,7 +211,7 @@ public class BlockInStream extends InStream {
     if (mCheckpointPos != -1) {
       mCheckpointInputStream.close();
     }
-    if (mLocalBlockReader != null) {
+    if (mLocalBlocks != null) {
       mTachyonFS.unlockBlock(mBlockInfo.getBlockId(), mBlockLockId);
     }
     mClosed = true;
@@ -284,24 +286,22 @@ public class BlockInStream extends InStream {
   }
 
   private int readLocal(byte[] b, int off, int len) throws IOException {
-    if (mLocalBlockReader != null) {
-      // Right now we just try to read the whole thing, and if that fails, we read nothing. In the
-      // future, we can try and read as much as we have locally, even if that isn't the whole
-      // request.
-      BlockReader.CloseableChannels channels = mLocalBlockReader.getChannels(mBlockPos, len);
-      if (channels != null) {
-        try {
-          ByteBuffer wrappedArray = ByteBuffer.wrap(b, off, len);
-          for (FileChannel chan : channels) {
-            chan.read(wrappedArray);
-          }
-          return len;
-        } finally {
-          channels.close();
+    if (mLocalBlocks != null) {
+      // Starting from the page being read, we try to read as much as we have stored locally
+      int bytesRead = 0;
+      while (bytesRead < len) {
+        int readPage = PageUtils.getPageId(mBlockPos + bytesRead);
+        MappedByteBuffer pageBuffer = mLocalBlocks.get(readPage);
+        if (pageBuffer == null) {
+          return bytesRead;
         }
-      } else {
-        return 0;
+        // We want to read the minimum of len and the remaining bytes in the page
+        pageBuffer.position((int) (mBlockPos + bytesRead - PageUtils.getPageOffset(readPage)));
+        int bytesToRead = Math.min(pageBuffer.remaining(), len - bytesRead);
+        pageBuffer.get(b, off + bytesRead, bytesToRead);
+        bytesRead += bytesToRead;
       }
+      return bytesRead;
     } else {
       return 0;
     }
