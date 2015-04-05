@@ -18,7 +18,14 @@ package tachyon.hadoop;
 import java.io.FileNotFoundException;
 import java.io.InputStream;
 import java.io.IOException;
+import java.io.File;
+import java.io.PrintWriter;
+import java.nio.file.Paths;
+import java.util.UUID;
 
+import com.google.common.collect.Range;
+import com.google.common.collect.RangeSet;
+import com.google.common.collect.TreeRangeSet;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FileSystem;
@@ -33,6 +40,8 @@ import tachyon.client.InStream;
 import tachyon.client.ReadType;
 import tachyon.client.TachyonFile;
 import tachyon.client.TachyonFS;
+import tachyon.conf.UserConf;
+import tachyon.util.PageUtils;
 
 public class HdfsFileInputStream extends InputStream implements Seekable, PositionedReadable {
   private static final Logger LOG = LoggerFactory.getLogger(Constants.LOGGER_TYPE);
@@ -56,6 +65,9 @@ public class HdfsFileInputStream extends InputStream implements Seekable, Positi
   // isn't null.
   private FSDataInputStream mHdfsInputStream = null;
 
+  // A RangeSet to track which ranges of the file were read
+  private RangeSet<Integer> mReadRanges;
+
   public HdfsFileInputStream(TachyonFS tfs, int fileId, Path hdfsPath, Configuration conf,
       int bufferSize) throws IOException {
     LOG.debug("PartitionInputStreamHdfs({}, {}, {}, {}, {})", tfs, fileId, hdfsPath, conf,
@@ -75,6 +87,8 @@ public class HdfsFileInputStream extends InputStream implements Seekable, Positi
     } catch (IOException e) {
       LOG.error(e.getMessage());
     }
+
+    mReadRanges = TreeRangeSet.create();
   }
 
   @Override
@@ -84,6 +98,22 @@ public class HdfsFileInputStream extends InputStream implements Seekable, Positi
     }
     if (mHdfsInputStream != null) {
       mHdfsInputStream.close();
+    }
+
+    if (mReadRanges != null) {
+      // Create a file at /root/pagedata_{pagesize}/mHdfsPath/uuid
+      File statsFile = new File(Paths.get("/root", "pagedata_"
+                                          + UserConf.get().PAGE_SIZE_BYTE,
+                                          mTachyonFile.getPath(),
+                                          UUID.randomUUID().toString())
+                                .toString());
+      statsFile.getParentFile().mkdirs();
+      PrintWriter pw = new PrintWriter(statsFile);
+      for (Range<Integer> range : mReadRanges.asRanges()) {
+        pw.println(range.lowerEndpoint() + " " + range.upperEndpoint());
+      }
+      pw.close();
+      mReadRanges = null;
     }
   }
 
@@ -121,6 +151,8 @@ public class HdfsFileInputStream extends InputStream implements Seekable, Positi
 
   @Override
   public synchronized int read(byte[] b, int off, int len) throws IOException {
+    mReadRanges.add(Range.closedOpen(PageUtils.getPageId(mCurrentPosition),
+                                     PageUtils.getPageId(mCurrentPosition + len - 1) + 1));
     if (mTachyonFileInputStream != null) {
       try {
         int ret = mTachyonFileInputStream.read(b, off, len);
@@ -151,6 +183,8 @@ public class HdfsFileInputStream extends InputStream implements Seekable, Positi
     if ((position < 0) || (position >= mTachyonFile.length())) {
       return -1;
     }
+    mReadRanges.add(Range.closedOpen(PageUtils.getPageId(mCurrentPosition),
+                                     PageUtils.getPageId(mCurrentPosition + length - 1) + 1));
     long oldPos = getPos();
     if (mTachyonFileInputStream != null) {
       try {
