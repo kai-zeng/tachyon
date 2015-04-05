@@ -63,7 +63,7 @@ public final class BlockResponse {
             out.add(Unpooled.wrappedBuffer(data));
             break;
           case TRANSFER:
-            out.addAll(blockReader.getChannels(msg.getOffset(), msg.getLength()));
+            out.add(blockReader.getChannels(msg.getOffset(), msg.getLength()));
             break;
           default:
             throw new AssertionError("Unknown file transfer type: "
