@@ -187,11 +187,7 @@ public class TachyonFileTest {
       String localDir = file.getLocalDirectory(0);
       Assert.assertNotNull("Block not found on local ramdisk", localDir);
       BlockReader blockReader = new BlockReader(localDir);
-      try {
-        Assert.assertEquals(TestUtils.getIncreasingByteBuffer(k), blockReader.read(0, k));
-      } finally {
-        blockReader.close();
-      }
+      Assert.assertEquals(TestUtils.getIncreasingByteBuffer(k), blockReader.read(0, k));
     }
   }
 

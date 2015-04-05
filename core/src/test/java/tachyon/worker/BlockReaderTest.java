@@ -80,23 +80,19 @@ public class BlockReaderTest {
     TachyonFile file = mTfs.getFile(fileId);
     String blockDir = file.getLocalDirectory(0);
     BlockReader blockReader = new BlockReader(blockDir);
+    Exception exception = null;
     try {
-      Exception exception = null;
-      try {
-        blockReader.read(-1, 10);
-      } catch (IOException e) {
-        exception = e;
-      }
-      Assert.assertEquals("Offset cannot be negative", exception.getMessage());
-      try {
-        blockReader.read(10, -1);
-      } catch (IOException e) {
-        exception = e;
-      }
-      Assert.assertEquals("Length cannot be negative", exception.getMessage());
-    } finally {
-      blockReader.close();
+      blockReader.read(-1, 10);
+    } catch (IOException e) {
+      exception = e;
     }
+    Assert.assertEquals("Offset cannot be negative", exception.getMessage());
+    try {
+      blockReader.read(10, -1);
+    } catch (IOException e) {
+      exception = e;
+    }
+    Assert.assertEquals("Length cannot be negative", exception.getMessage());
   }
 
   @Test
@@ -106,13 +102,9 @@ public class BlockReaderTest {
     String blockDir = file.getLocalDirectory(0);
     List<Pair<Pair<Long, Long>, ByteBuffer>> readBounds = generateReadTestBounds(100);
     BlockReader blockReader = new BlockReader(blockDir);
-    try {
-      for (Pair<Pair<Long, Long>, ByteBuffer> bound : readBounds) {
-        Assert.assertEquals(bound.getSecond(),
-            blockReader.read(bound.getFirst().getFirst(), bound.getFirst().getSecond()));
-      }
-    } finally {
-      blockReader.close();
+    for (Pair<Pair<Long, Long>, ByteBuffer> bound : readBounds) {
+      Assert.assertEquals(bound.getSecond(),
+          blockReader.read(bound.getFirst().getFirst(), bound.getFirst().getSecond()));
     }
   }
 
@@ -123,22 +115,22 @@ public class BlockReaderTest {
     String blockDir = file.getLocalDirectory(0);
     BlockReader blockReader = new BlockReader(blockDir);
     List<Pair<Pair<Long, Long>, ByteBuffer>> readBounds = generateReadTestBounds(100);
-    try {
-      for (Pair<Pair<Long, Long>, ByteBuffer> bound : readBounds) {
-        List<FileChannel> channels =
-            blockReader.getChannels(bound.getFirst().getFirst(), bound.getFirst().getSecond());
-        ByteBuffer buf = null;
-        if (channels != null) {
+    for (Pair<Pair<Long, Long>, ByteBuffer> bound : readBounds) {
+      BlockReader.CloseableChannels channels =
+          blockReader.getChannels(bound.getFirst().getFirst(), bound.getFirst().getSecond());
+      ByteBuffer buf = null;
+      if (channels != null) {
+        try {
           buf = ByteBuffer.allocate(bound.getSecond().remaining());
           for (FileChannel chan : channels) {
             chan.read(buf);
           }
           buf.flip();
+        } finally {
+          channels.close();
         }
-        Assert.assertEquals(bound.getSecond(), buf);
       }
-    } finally {
-      blockReader.close();
+      Assert.assertEquals(bound.getSecond(), buf);
     }
   }
 }

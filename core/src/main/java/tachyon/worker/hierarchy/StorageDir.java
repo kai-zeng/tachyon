@@ -359,7 +359,6 @@ public final class StorageDir {
     try {
       return blockReader.read(offset, length);
     } finally {
-      blockReader.close();
       accessBlock(blockId);
     }
   }

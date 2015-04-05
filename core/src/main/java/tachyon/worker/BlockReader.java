@@ -21,13 +21,9 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.StandardOpenOption;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 import com.google.common.base.Preconditions;
-import com.google.common.io.Closer;
 
 import tachyon.conf.UserConf;
 import tachyon.util.PageUtils;
@@ -37,13 +33,41 @@ import tachyon.util.PageUtils;
  * the block. It is not thread-safe, as such, it is inadvisable to read and modify a block
  * concurrently with different handler classes.
  */
-public final class BlockReader implements Closeable {
+public final class BlockReader {
   // Stores a mapping from page ids to the file object for that page file
   private Map<Integer, File> mPageFiles;
   // The directory of the block
   private File mBlockDir;
   // The size of the block
   private long mSize = 0;
+
+  /**
+   * The getChannels method needs to return a list of channels. This class wraps a list of channels
+   * into a closeable class, so the returned channels can easily be closed.
+   */
+  public class CloseableChannels implements Closeable, Iterable<FileChannel> {
+    private List<FileChannel> mChannels;
+
+    private CloseableChannels(List<FileChannel> channels) {
+      mChannels = channels;
+    }
+
+    public List<FileChannel> getChannels() {
+      return mChannels;
+    }
+    
+    @Override
+    public void close() throws IOException {
+      for (FileChannel channel : mChannels) {
+        channel.close();
+      }
+    }
+
+    @Override
+    public Iterator<FileChannel> iterator() {
+      return mChannels.iterator();
+    }
+  }
 
   /**
    * Creates a BlockReader given the directory of an existing block
@@ -67,8 +91,8 @@ public final class BlockReader implements Closeable {
   }
 
   /**
-   * Gets a list of channels used to access the block at a given offset and length.
-   * The channels must be closed by the caller.
+   * Gets a closeable list of channels used to access the block at a given offset and length. The
+   * channels must be closed by the caller.
    *
    * @param offset the offset into the block
    * @param length the length of data to read, -1 represents reading the rest of the block
@@ -76,7 +100,7 @@ public final class BlockReader implements Closeable {
    *         if all the requested data is not in the block directory
    * @throws IOException if the bounds are out of range of the block or some other I/O error
    */
-  public List<FileChannel> getChannels(long offset, long length) throws IOException {
+  public CloseableChannels getChannels(long offset, long length) throws IOException {
     String error = null;
     if (offset < 0) {
       throw new IOException("Offset cannot be negative");
@@ -105,12 +129,11 @@ public final class BlockReader implements Closeable {
       ret.add(addChannel);
       offset += bytesToRead;
     }
-    return ret;
+    return new CloseableChannels(ret);
   }
 
   /**
-   * Get the number of bytes stored in the block directory. This operation will not open any new
-   * resources, so the block reader does not need to be closed if it is opened just to get the size.
+   * Get the number of bytes stored in the block directory.
    * 
    * @return size of the block in bytes
    */
@@ -128,7 +151,7 @@ public final class BlockReader implements Closeable {
    * @throws IOException if the requested bounds are out of range
    */
   public ByteBuffer read(long offset, long length) throws IOException {
-    List<FileChannel> channels = getChannels(offset, length);
+    CloseableChannels channels = getChannels(offset, length);
     if (channels == null) {
       return null;
     }
@@ -142,15 +165,9 @@ public final class BlockReader implements Closeable {
         channel.read(ret);
       }
     } finally {
-      for (FileChannel channel : channels) {
-        channel.close();
-      }
+      channels.close();
     }
     ret.flip();
     return ret;
-  }
-
-  @Override
-  public void close() throws IOException {
   }
 }
