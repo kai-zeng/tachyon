@@ -19,9 +19,14 @@ import java.io.Closeable;
 import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.StandardOpenOption;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
 
 import com.google.common.base.Preconditions;
 
@@ -168,6 +173,24 @@ public final class BlockReader {
       channels.close();
     }
     ret.flip();
+    return ret;
+  }
+
+  /**
+   * Returns a mapping for all pages in the block of the page id to the memory-mapped page file
+   * @return a map from page id to the mapped page buffer
+   * @throws IOException
+   */
+  public Map<Integer, MappedByteBuffer> getMappedPages() throws IOException {
+    Map<Integer, MappedByteBuffer> ret = new HashMap<Integer, MappedByteBuffer>();
+    for (Map.Entry<Integer, File> entry : mPageFiles.entrySet()) {
+      FileChannel channel = FileChannel.open(entry.getValue().toPath(), StandardOpenOption.READ);
+      try {
+        ret.put(entry.getKey(), channel.map(FileChannel.MapMode.READ_ONLY, 0, channel.size()));
+      } finally {
+        channel.close();
+      }
+    }
     return ret;
   }
 }
