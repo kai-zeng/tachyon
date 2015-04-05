@@ -355,8 +355,6 @@ public class BlockInStream extends InStream {
     ByteBuffer buf = null;
 
     try {
-      List<WorkerInfo> workers = blockInfo.getWorkers();
-      LOG.debug("Block locations:" + workers);
       // We are given a list of Workers sorted by the storage tier they are in (so workers with the
       // pages in memory come before workers in ssd, etc).
       for (WorkerInfoPair workerPair : sortedWorkers) {
@@ -366,8 +364,7 @@ public class BlockInStream extends InStream {
         if (host.equals(InetAddress.getLocalHost().getHostName())
             || host.equals(InetAddress.getLocalHost().getHostAddress())
             || host.equals(NetworkUtils.getLocalHostName())) {
-          LOG.warn("Master thinks the local machine has data, But not! blockId:{}",
-              blockInfo.blockId);
+          continue;
         }
         LOG.debug(host + ":" + port + " current host is " + NetworkUtils.getLocalHostName() + " "
             + NetworkUtils.getLocalIpAddress());
