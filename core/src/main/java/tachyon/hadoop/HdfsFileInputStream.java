@@ -50,6 +50,9 @@ public class HdfsFileInputStream extends InputStream implements Seekable, Positi
   private long mCurrentPosition;
   // The TachyonFile containing the file metadata
   private TachyonFile mTachyonFile;
+  // The TachyonFS used to execute operations. This object owns the TachyonFS
+  // and will close it when closed.
+  private TachyonFS mTFS;
 
   // An input stream for the file stored in Tachyon. It will always be ready to read at
   // mCurrentPosition.
@@ -76,7 +79,8 @@ public class HdfsFileInputStream extends InputStream implements Seekable, Positi
     mHdfsPath = hdfsPath;
     mHadoopConf = conf;
     mHadoopBufferSize = bufferSize;
-    mTachyonFile = tfs.getFile(fileId);
+    mTFS = tfs;
+    mTachyonFile = mTFS.getFile(fileId);
     if (mTachyonFile == null) {
       throw new FileNotFoundException("File " + hdfsPath + " with FID " + fileId
           + " is not found.");
@@ -99,7 +103,6 @@ public class HdfsFileInputStream extends InputStream implements Seekable, Positi
     if (mHdfsInputStream != null) {
       mHdfsInputStream.close();
     }
-
     if (mReadRanges != null) {
       // Create a file at /root/pagedata_{pagesize}/mHdfsPath/uuid
       File statsFile = new File(Paths.get("/root", "pagedata_"
@@ -115,6 +118,7 @@ public class HdfsFileInputStream extends InputStream implements Seekable, Positi
       pw.close();
       mReadRanges = null;
     }
+    mTFS.close();
   }
 
   private void getHdfsInputStream(long seekPosition) throws IOException {
