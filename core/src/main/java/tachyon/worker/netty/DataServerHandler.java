@@ -64,7 +64,6 @@ public final class DataServerHandler extends ChannelInboundHandlerAdapter {
       ChannelFuture future =
           ctx.writeAndFlush(new BlockResponse(blockId, offset, readLength, blockReader));
       future.addListener(ChannelFutureListener.CLOSE);
-      future.addListener(new ClosableResourceChannelListener(blockReader));
       storageDir.accessBlock(blockId);
       LOG.info("Response remote request by reading from {}, preparation done.",
           storageDir.getBlockDirPath(blockId).toString());
@@ -74,9 +73,6 @@ public final class DataServerHandler extends ChannelInboundHandlerAdapter {
       BlockResponse resp = BlockResponse.createErrorResponse(blockId);
       ChannelFuture future = ctx.writeAndFlush(resp);
       future.addListener(ChannelFutureListener.CLOSE);
-      if (blockReader == null) {
-        blockReader.close();
-      }
     } finally {
       mLocker.unlock(blockId, lockId);
     }

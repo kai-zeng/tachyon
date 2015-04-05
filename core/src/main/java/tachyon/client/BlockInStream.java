@@ -210,7 +210,6 @@ public class BlockInStream extends InStream {
       mCheckpointInputStream.close();
     }
     if (mLocalBlockReader != null) {
-      mLocalBlockReader.close();
       mTachyonFS.unlockBlock(mBlockInfo.getBlockId(), mBlockLockId);
     }
     mClosed = true;
@@ -289,7 +288,7 @@ public class BlockInStream extends InStream {
       // Right now we just try to read the whole thing, and if that fails, we read nothing. In the
       // future, we can try and read as much as we have locally, even if that isn't the whole
       // request.
-      List<FileChannel> channels = mLocalBlockReader.getChannels(mBlockPos, len);
+      BlockReader.CloseableChannels channels = mLocalBlockReader.getChannels(mBlockPos, len);
       if (channels != null) {
         try {
           ByteBuffer wrappedArray = ByteBuffer.wrap(b, off, len);
@@ -298,9 +297,7 @@ public class BlockInStream extends InStream {
           }
           return len;
         } finally {
-          for (FileChannel chan : channels) {
-            chan.close();
-          }
+          channels.close();
         }
       } else {
         return 0;

@@ -400,12 +400,8 @@ public class TachyonFile implements Comparable<TachyonFile> {
 
     if (localBlockDir != null) {
       BlockReader blockReader = new BlockReader(localBlockDir);
-      try {
-        return new TachyonByteBuffer(mTachyonFS, blockReader.read(offset, len), blockId,
-            blockLockId);
-      } finally {
-        blockReader.close();
-      }
+      return new TachyonByteBuffer(mTachyonFS, blockReader.read(offset, len), blockId,
+          blockLockId);
     }
 
     mTachyonFS.unlockBlock(blockId, blockLockId);
