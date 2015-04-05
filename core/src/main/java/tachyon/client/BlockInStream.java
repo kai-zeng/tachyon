@@ -62,6 +62,8 @@ public class BlockInStream extends InStream {
   private final int mBlockIndex;
   // The block info of the block we are reading
   private ClientBlockInfo mBlockInfo;
+  // The block lock id we use to lock the block, if we do
+  private int mBlockLockId;
 
   /**
    * For each worker that stores the block, we also have a list of storage directories that pages of
@@ -152,13 +154,13 @@ public class BlockInStream extends InStream {
     // Try to promote the block if requested
     if (readType.isPromote()) {
       if (!file.promoteBlock(mBlockIndex)) {
-        LOG.info("Failed to promote block");
+        LOG.debug("Failed to promote block");
       }
     }
 
     // Try to lock the block and get a local block reader
-    int blockLockId = mTachyonFS.getBlockLockId();
-    String localBlockDir = mTachyonFS.lockBlock(mBlockInfo.getBlockId(), blockLockId);
+    mBlockLockId = mTachyonFS.getBlockLockId();
+    String localBlockDir = mTachyonFS.lockBlock(mBlockInfo.getBlockId(), mBlockLockId);
     if (localBlockDir == null) {
       // There is no local block directory
       mLocalBlockReader = null;
@@ -209,6 +211,7 @@ public class BlockInStream extends InStream {
     }
     if (mLocalBlockReader != null) {
       mLocalBlockReader.close();
+      mTachyonFS.unlockBlock(mBlockInfo.getBlockId(), mBlockLockId);
     }
     mClosed = true;
   }
@@ -275,11 +278,17 @@ public class BlockInStream extends InStream {
       // request.
       List<FileChannel> channels = mLocalBlockReader.getChannels(mBlockPos, len);
       if (channels != null) {
-        ByteBuffer wrappedArray = ByteBuffer.wrap(b, off, len);
-        for (FileChannel chan : channels) {
-          chan.read(wrappedArray);
+        try {
+          ByteBuffer wrappedArray = ByteBuffer.wrap(b, off, len);
+          for (FileChannel chan : channels) {
+            chan.read(wrappedArray);
+          }
+          return len;
+        } finally {
+          for (FileChannel chan : channels) {
+            chan.close();
+          }
         }
-        return len;
       } else {
         return 0;
       }
@@ -345,7 +354,7 @@ public class BlockInStream extends InStream {
 
     try {
       List<WorkerInfo> workers = blockInfo.getWorkers();
-      LOG.info("Block locations:" + workers);
+      LOG.debug("Block locations:" + workers);
       // We are given a list of Workers sorted by the storage tier they are in (so workers with the
       // pages in memory come before workers in ssd, etc).
       for (WorkerInfoPair workerPair : sortedWorkers) {
@@ -358,7 +367,7 @@ public class BlockInStream extends InStream {
           LOG.warn("Master thinks the local machine has data, But not! blockId:{}",
               blockInfo.blockId);
         }
-        LOG.info(host + ":" + port + " current host is " + NetworkUtils.getLocalHostName() + " "
+        LOG.debug(host + ":" + port + " current host is " + NetworkUtils.getLocalHostName() + " "
             + NetworkUtils.getLocalIpAddress());
 
         try {
@@ -388,14 +397,14 @@ public class BlockInStream extends InStream {
     try {
       socketChannel.connect(address);
 
-      LOG.info("Connected to remote machine " + address + " sent");
+      LOG.debug("Connected to remote machine " + address + " sent");
       DataServerMessage sendMsg =
           DataServerMessage.createBlockRequestMessage(blockId, offset, length);
       while (!sendMsg.finishSending()) {
         sendMsg.send(socketChannel);
       }
 
-      LOG.info("Data " + blockId + " to remote machine " + address + " sent");
+      LOG.debug("Data " + blockId + " to remote machine " + address + " sent");
 
       // Since we're setting toSend to false, the other arguments don't really matter
       DataServerMessage recvMsg =
@@ -406,15 +415,15 @@ public class BlockInStream extends InStream {
           LOG.warn("Read nothing");
         }
       }
-      LOG.info("Data " + blockId + " from remote machine " + address + " received");
+      LOG.debug("Data " + blockId + " from remote machine " + address + " received");
 
       if (!recvMsg.isMessageReady()) {
-        LOG.info("Data " + blockId + " from remote machine is not ready.");
+        LOG.debug("Data " + blockId + " from remote machine is not ready.");
         return null;
       }
 
       if (recvMsg.getBlockId() < 0) {
-        LOG.info("Data " + recvMsg.getBlockId() + " is not in remote machine.");
+        LOG.debug("Data " + recvMsg.getBlockId() + " is not in remote machine.");
         return null;
       }
       return recvMsg.getReadOnlyData();
@@ -433,7 +442,7 @@ public class BlockInStream extends InStream {
         mCheckpointInputStream.close();
       }
       String checkpointPath = mFile.getUfsPath();
-      LOG.info("Opening stream from underlayer fs: " + checkpointPath);
+      LOG.debug("Opening stream from underlayer fs: " + checkpointPath);
       if (checkpointPath.equals("")) {
         // We can't stream from the UnderFS, so return 0 bytes read
         return 0;
@@ -464,6 +473,7 @@ public class BlockInStream extends InStream {
           (int) (Math.min(mBlockInfo.getLength(), PageUtils.ceilingPageMultiple(mBlockPos + len))
               - mCheckpointPos);
       mRemoteBuffer = ByteBuffer.allocate(lenToRead);
+      mRemoteBufferStartPage = PageUtils.getPageId(mCheckpointPos);
       int bytesRead = 0;
       while (bytesRead < lenToRead) {
         int justRead =

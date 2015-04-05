@@ -34,8 +34,7 @@ import tachyon.util.PageUtils;
 
 /**
  * A BlockReader is used for reading content from an existing block, as well as finding the size of
- * the block. It will keep track of any system resources used to execute the reads and close them
- * when closed. It is not thread-safe, as such, it is inadvisable to read and modify a block
+ * the block. It is not thread-safe, as such, it is inadvisable to read and modify a block
  * concurrently with different handler classes.
  */
 public final class BlockReader implements Closeable {
@@ -45,8 +44,6 @@ public final class BlockReader implements Closeable {
   private File mBlockDir;
   // The size of the block
   private long mSize = 0;
-  // A closer used to close any opened files
-  private Closer mCloser = Closer.create();
 
   /**
    * Creates a BlockReader given the directory of an existing block
@@ -71,6 +68,7 @@ public final class BlockReader implements Closeable {
 
   /**
    * Gets a list of channels used to access the block at a given offset and length.
+   * The channels must be closed by the caller.
    *
    * @param offset the offset into the block
    * @param length the length of data to read, -1 represents reading the rest of the block
@@ -102,8 +100,7 @@ public final class BlockReader implements Closeable {
         }
         return null;
       }
-      FileChannel addChannel =
-          mCloser.register(FileChannel.open(pageFile.toPath(), StandardOpenOption.READ));
+      FileChannel addChannel = FileChannel.open(pageFile.toPath(), StandardOpenOption.READ);
       addChannel.position(relativePos);
       ret.add(addChannel);
       offset += bytesToRead;
@@ -135,18 +132,19 @@ public final class BlockReader implements Closeable {
     if (channels == null) {
       return null;
     }
-    // If there is just one channel, we can return a mapped byte-buffer of just the requested
-    // content of the file
-    if (channels.size() == 1) {
-      return channels.get(0).map(FileChannel.MapMode.READ_ONLY, channels.get(0).position(), length);
-    }
-    // Otherwise, we have to create a ByteBuffer large enough to hold the requested range and copy
+    // We create a ByteBuffer large enough to hold the requested range and copy
     // the correct pages in.
     // TODO There might be a way to wrap multiple mapped byte buffers into a larger one, so that we
     // can avoid copying.
     ByteBuffer ret = ByteBuffer.allocate((int) length);
-    for (FileChannel channel : channels) {
-      channel.read(ret);
+    try {
+      for (FileChannel channel : channels) {
+        channel.read(ret);
+      }
+    } finally {
+      for (FileChannel channel : channels) {
+        channel.close();
+      }
     }
     ret.flip();
     return ret;
@@ -154,6 +152,5 @@ public final class BlockReader implements Closeable {
 
   @Override
   public void close() throws IOException {
-    mCloser.close();
   }
 }
