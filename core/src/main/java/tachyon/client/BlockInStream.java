@@ -247,6 +247,19 @@ public class BlockInStream extends InStream {
     int end = off + len;
     int bytesRead;
     if (off < end) {
+      // Read from mRemoteBuffer, since that should technically be the fastest
+      long remoteBufferOffset = PageUtils.getPageOffset(mRemoteBufferStartPage);
+      if (mRemoteBufferStartPage != -1 && mBlockPos >= remoteBufferOffset
+          && mBlockPos < remoteBufferOffset + mRemoteBuffer.limit()) {
+        // Set the position of the buffer to the block position relative to the buffer offset
+        mRemoteBuffer.position((int) (mBlockPos - remoteBufferOffset));
+        int bytesToRead = Math.min(mRemoteBuffer.remaining(), len);
+        mRemoteBuffer.get(b, off, bytesToRead);
+        off += bytesToRead;
+        mBlockPos += bytesToRead;
+      }
+    }
+    if (off < end) {
       // Read as much as possible locally
       bytesRead = readLocal(b, off, end - off);
       off += bytesRead;
@@ -298,49 +311,38 @@ public class BlockInStream extends InStream {
   }
 
   private int readRemote(byte[] b, int off, int len) throws IOException {
-    // If there's anything we can read from the current remote buffer, read that and return
-    long remoteBufferOffset = PageUtils.getPageOffset(mRemoteBufferStartPage);
-    if (mRemoteBufferStartPage != -1 && mBlockPos >= remoteBufferOffset
-        && mBlockPos < remoteBufferOffset + mRemoteBuffer.limit()) {
-      // Set the position of the buffer to the block position relative to the buffer offset
-      mRemoteBuffer.position((int) (mBlockPos - remoteBufferOffset));
-      int bytesToRead = Math.min(mRemoteBuffer.remaining(), len);
-      mRemoteBuffer.get(b, off, bytesToRead);
-      return bytesToRead;
-    } else {
-      // Then try and read remotely starting from the page that mBlockPos is on
-      remoteBufferOffset = PageUtils.getPageOffset(PageUtils.getPageId(mBlockPos));
-      long remoteLength = Math.min(BUFFER_SIZE, mBlockInfo.getLength() - remoteBufferOffset);
-      for (int i = 0; i < MAX_REMOTE_READ_ATTEMPTS; i ++) {
-        mRemoteBuffer =
-            readRemoteByteBuffer(mTachyonFS, mBlockInfo, remoteBufferOffset, remoteLength);
-        if (mRemoteBuffer != null) {
-          mRemoteBufferStartPage = PageUtils.getPageId(remoteBufferOffset);
-          break;
-        } else {
-          // The read failed, refresh the block info and try again
-          mRemoteBufferStartPage = -1;
-          mBlockInfo = mFile.getClientBlockInfo(mBlockIndex);
-          mSortedWorkers = buildSortedWorkers(mBlockInfo);
-        }
+    // Try and read remotely starting from the page that mBlockPos is on
+    long remoteBufferOffset = PageUtils.getPageOffset(PageUtils.getPageId(mBlockPos));
+    long remoteLength = Math.min(BUFFER_SIZE, mBlockInfo.getLength() - remoteBufferOffset);
+    for (int i = 0; i < MAX_REMOTE_READ_ATTEMPTS; i ++) {
+      mRemoteBuffer =
+        readRemoteByteBuffer(mTachyonFS, mBlockInfo, remoteBufferOffset, remoteLength);
+      if (mRemoteBuffer != null) {
+        mRemoteBufferStartPage = PageUtils.getPageId(remoteBufferOffset);
+        break;
+      } else {
+        // The read failed, refresh the block info and try again
+        mRemoteBufferStartPage = -1;
+        mBlockInfo = mFile.getClientBlockInfo(mBlockIndex);
+        mSortedWorkers = buildSortedWorkers(mBlockInfo);
       }
-      if (mRemoteBufferStartPage == -1) {
-        // We failed to fetch anything remotely, so return 0 bytes read
-        return 0;
-      }
-      // Otherwise, we should be able to read into the buffer. We cache the entire read buffer if
-      // we're re-caching, then rewind it back to the beginning.
-      if (mRecache) {
-        mBlockCacher.writePages(mBlockInfo, PageUtils.getPageId(remoteBufferOffset), mRemoteBuffer);
-        mRemoteBuffer.rewind();
-      }
-      assert mBlockPos >= remoteBufferOffset
-          && mBlockPos < remoteBufferOffset + mRemoteBuffer.limit();
-      mRemoteBuffer.position((int) (mBlockPos - remoteBufferOffset));
-      int bytesToRead = Math.min(mRemoteBuffer.remaining(), len);
-      mRemoteBuffer.get(b, off, bytesToRead);
-      return bytesToRead;
     }
+    if (mRemoteBufferStartPage == -1) {
+      // We failed to fetch anything remotely, so return 0 bytes read
+      return 0;
+    }
+    // Otherwise, we should be able to read into the buffer. We cache the entire read buffer if
+    // we're re-caching, then rewind it back to the beginning.
+    if (mRecache) {
+      mBlockCacher.writePages(mBlockInfo, PageUtils.getPageId(remoteBufferOffset), mRemoteBuffer);
+      mRemoteBuffer.rewind();
+    }
+    assert mBlockPos >= remoteBufferOffset
+      && mBlockPos < remoteBufferOffset + mRemoteBuffer.limit();
+    mRemoteBuffer.position((int) (mBlockPos - remoteBufferOffset));
+    int bytesToRead = Math.min(mRemoteBuffer.remaining(), len);
+    mRemoteBuffer.get(b, off, bytesToRead);
+    return bytesToRead;
   }
 
   public static ByteBuffer readRemoteByteBuffer(TachyonFS tachyonFS, ClientBlockInfo blockInfo,
