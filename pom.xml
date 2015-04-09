@@ -143,6 +143,7 @@
     <module>core</module>
     <module>client</module>
     <module>assembly</module>
+    <module>perf</module>
   </modules>
 
   <build>
