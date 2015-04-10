@@ -35,8 +35,8 @@ import tachyon.util.PageUtils;
 public final class BlockAppender implements Closeable {
   // The directory being written to
   private File mBlockDir;
-  // The last page file currently being written, null if there is no such page
-  private RandomAccessFile mCurrentFile = null;
+  // A buffer to hold data to be flushed to the next page
+  private ByteBuffer mPageBuf = null;
   // The id of the page currently being written, -1 if there is no such page
   private int mCurrentPageId = -1;
   // The number of bytes that have been written to the block
@@ -49,6 +49,8 @@ public final class BlockAppender implements Closeable {
    */
   public BlockAppender(String blockDir) throws IOException {
     mBlockDir = new File(Preconditions.checkNotNull(blockDir));
+    mPageBuf = ByteBuffer.allocate((int) UserConf.get().PAGE_SIZE_BYTE);
+    mCurrentPageId = 0;
     if (mBlockDir.exists()) {
       if (mBlockDir.isFile()) {
         throw new IOException(
@@ -62,52 +64,40 @@ public final class BlockAppender implements Closeable {
   }
 
   /**
+   * Flushes mPageBuf to a new page file and increments mCurrentPageId
+   * @throws IOException
+   */
+  private void flushBuffer() throws IOException {
+    File pageFile = new File(mBlockDir, PageUtils.getPageFilename(mCurrentPageId));
+    RandomAccessFile raPageFile = new RandomAccessFile(pageFile, "rw");
+    raPageFile.write(mPageBuf.array());
+    raPageFile.close();
+    mPageBuf.clear();
+    mCurrentPageId++;
+  }
+
+  /**
    * Writes the given data to the end of the block
    * @param buf the data to append to the block
    * @throws IOException if an I/O error related to creating and writing files occurs
    */
   public void append(ByteBuffer buf) throws IOException {
-    // While the given buffer still has remaining bytes, we append as much as possible to the
-    // current file. When we reach the limit of the current file, we create a new one at the next
-    // page id.
     while (buf.hasRemaining()) {
-      if (mCurrentFile == null) {
-        // If there are no pages, create the first one
-        mCurrentPageId = 0;
-        createNextFile();
-      } else if (mCurrentFile.length() == UserConf.get().PAGE_SIZE_BYTE) {
-        // If the current page is full, close the existing one and create a new one
-        mCurrentFile.close();
-        mCurrentPageId ++;
-        createNextFile();
+      // Write as much as possible to mPageBuf, flushing it when it gets full
+      int bytesToWrite = Math.min(buf.remaining(), mPageBuf.remaining());
+      mPageBuf.put((ByteBuffer) buf.slice().limit(bytesToWrite));
+      if (mPageBuf.remaining() == 0) {
+        flushBuffer();
       }
-      // Write as much of our buffer as possible to the current page file
-      long currentPageLength = mCurrentFile.length();
-      int bytesToWrite =
-          Math.min(buf.remaining(), (int) (UserConf.get().PAGE_SIZE_BYTE - currentPageLength));
-      mCurrentFile.getChannel().write((ByteBuffer) buf.slice().limit(bytesToWrite));
       buf.position(buf.position() + bytesToWrite);
       mWrittenBytes += bytesToWrite;
     }
   }
 
-  /**
-   * Creates a new RandomAccessFile at the given page id and stores it in mCurrentFile
-   *
-   * @throws IOException if the file isn't created properly or setting the permissions doesn't work
-   */
-  private void createNextFile() throws IOException {
-    File pageFile = new File(mBlockDir, PageUtils.getPageFilename(mCurrentPageId));
-    mCurrentFile = new RandomAccessFile(pageFile, "rw");
-    // change the permission of the file and use the sticky bit
-    CommonUtils.changeLocalFileToFullPermission(pageFile.getAbsolutePath());
-    CommonUtils.setLocalFileStickyBit(pageFile.getAbsolutePath());
-  }
-
   @Override
   public void close() throws IOException {
-    if (mCurrentFile != null) {
-      mCurrentFile.close();
+    if (mPageBuf.position() > 0) {
+      flushBuffer();
     }
   }
 
