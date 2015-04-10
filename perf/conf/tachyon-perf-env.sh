@@ -9,7 +9,7 @@ export TACHYON_PERF_WORKSPACE="/tmp/tachyon-perf-workspace"
 export TACHYON_PERF_OUT_DIR="$TACHYON_PERF_HOME/result"
 
 #the tachyon-perf master service address
-TACHYON_PERF_MASTER_HOSTNAME="ec2-52-8-11-98.us-west-1.compute.amazonaws.com"
+TACHYON_PERF_MASTER_HOSTNAME="localhost"
 TACHYON_PERF_MASTER_PORT=23333
 
 #the threads num
