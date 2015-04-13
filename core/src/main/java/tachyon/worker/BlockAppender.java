@@ -35,12 +35,18 @@ import tachyon.util.PageUtils;
 public final class BlockAppender implements Closeable {
   // The directory being written to
   private File mBlockDir;
-  // A buffer to hold data to be flushed to the next page
+  // A buffer to hold data to be flushed to the next page. This is useful when a lot of small
+  // appends are executed in a row. Rather than individually writing each one to the page file, we
+  // can flush them at once when the buffer is full.
   private ByteBuffer mPageBuf = null;
   // The id of the page currently being written, -1 if there is no such page
   private int mCurrentPageId = -1;
+  // The page file currently being written, null if there is no such page
+  private RandomAccessFile mCurrentPageFile = null;
   // The number of bytes that have been written to the block
   private long mWrittenBytes = 0;
+  // Whether the blockAppender has been closed or not
+  private boolean mClosed = false;
 
   /**
    * Create a new BlockAppender at the given directory
@@ -49,8 +55,9 @@ public final class BlockAppender implements Closeable {
    */
   public BlockAppender(String blockDir) throws IOException {
     mBlockDir = new File(Preconditions.checkNotNull(blockDir));
-    mPageBuf = ByteBuffer.allocate((int) UserConf.get().PAGE_SIZE_BYTE);
-    mCurrentPageId = 0;
+    // We buffer writes up to half the page size, since larger than that, it would probably be
+    // better to write directly to the file.
+    mPageBuf = ByteBuffer.allocate((int) (UserConf.get().PAGE_SIZE_BYTE / 2));
     if (mBlockDir.exists()) {
       if (mBlockDir.isFile()) {
         throw new IOException(
@@ -64,16 +71,32 @@ public final class BlockAppender implements Closeable {
   }
 
   /**
-   * Flushes mPageBuf to a new page file and increments mCurrentPageId
+   * Flushes the given buffer to the current page file or files, incrementing mCurrentPageId as
+   * necessary.
+   *
+   * @param buf the ByteBuffer to write
    * @throws IOException
    */
-  private void flushBuffer() throws IOException {
-    File pageFile = new File(mBlockDir, PageUtils.getPageFilename(mCurrentPageId));
-    RandomAccessFile raPageFile = new RandomAccessFile(pageFile, "rw");
-    raPageFile.write(mPageBuf.array());
-    raPageFile.close();
-    mPageBuf.clear();
-    mCurrentPageId++;
+  private void flushBuffer(ByteBuffer buf) throws IOException {
+    while (buf.hasRemaining()) {
+      if (mCurrentPageFile == null || mCurrentPageFile.length() == UserConf.get().PAGE_SIZE_BYTE) {
+        // Either we haven't created a page file yet, or our current one is full
+        if (mCurrentPageFile == null) {
+          mCurrentPageId = 0;
+        } else {
+          mCurrentPageFile.close();
+          mCurrentPageId++;
+        }
+        File pageFile = new File(mBlockDir, PageUtils.getPageFilename(mCurrentPageId));
+        mCurrentPageFile = new RandomAccessFile(pageFile, "rw");
+      }
+      // Write the minimum of the remaining bytes in the buffer and the remaining bytes in the file
+      int bytesToWrite =
+          (int) Math
+              .min(buf.remaining(), UserConf.get().PAGE_SIZE_BYTE - mCurrentPageFile.length());
+      mCurrentPageFile.getChannel().write((ByteBuffer) buf.slice().limit(bytesToWrite));
+      buf.position(buf.position() + bytesToWrite);
+    }
   }
 
   /**
@@ -82,22 +105,33 @@ public final class BlockAppender implements Closeable {
    * @throws IOException if an I/O error related to creating and writing files occurs
    */
   public void append(ByteBuffer buf) throws IOException {
-    while (buf.hasRemaining()) {
-      // Write as much as possible to mPageBuf, flushing it when it gets full
-      int bytesToWrite = Math.min(buf.remaining(), mPageBuf.remaining());
-      mPageBuf.put((ByteBuffer) buf.slice().limit(bytesToWrite));
-      if (mPageBuf.remaining() == 0) {
-        flushBuffer();
-      }
-      buf.position(buf.position() + bytesToWrite);
-      mWrittenBytes += bytesToWrite;
+    if (mClosed) {
+      throw new IOException("Cannot append after closing the BlockAppender");
+    }
+    mWrittenBytes += buf.remaining();
+    if (buf.remaining() <= mPageBuf.remaining()) {
+      // The write is small enough to buffer to mPageBuf
+      mPageBuf.put(buf);
+    } else {
+      // The write is too large. Flush mPageBuf, clear it, then flush buf
+      mPageBuf.flip();
+      flushBuffer(mPageBuf);
+      mPageBuf.clear();
+      flushBuffer(buf);
     }
   }
 
   @Override
   public void close() throws IOException {
-    if (mPageBuf.position() > 0) {
-      flushBuffer();
+    if (!mClosed) {
+      if (mPageBuf.position() > 0) {
+        mPageBuf.flip();
+        flushBuffer(mPageBuf);
+      }
+      if (mCurrentPageFile != null) {
+        mCurrentPageFile.close();
+      }
+      mClosed = true;
     }
   }
 
