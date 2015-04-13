@@ -409,7 +409,7 @@ public class TachyonFile implements Comparable<TachyonFile> {
   }
 
   /**
-   * Get the the whole block from remote workers.
+   * Get the the whole block from remote workers. We will NOT check the local worker for the block.
    * 
    * @param blockInfo The blockInfo of the block to read.
    * @return TachyonByteBuffer containing the block.
