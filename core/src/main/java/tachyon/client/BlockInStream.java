@@ -55,10 +55,6 @@ public class BlockInStream extends InStream {
   // the highest page multiple.
   private static final int BUFFER_SIZE = (int) PageUtils
       .ceilingPageMultiple(UserConf.get().REMOTE_READ_BUFFER_SIZE_BYTE);
-  // The maximum number of tries to read a remote block. Since the stored ClientBlockInfo might not
-  // be accurate when executing a remote read, we refresh it and retry reading a certain number of
-  // times before giving up.
-  private static final int MAX_REMOTE_READ_ATTEMPTS = 2;
 
   // The index of the block in the file
   private final int mBlockIndex;
@@ -311,25 +307,18 @@ public class BlockInStream extends InStream {
     // Try and read remotely starting from the page that mBlockPos is on
     long remoteBufferOffset = PageUtils.getPageOffset(PageUtils.getPageId(mBlockPos));
     long remoteLength = Math.min(BUFFER_SIZE, mBlockInfo.getLength() - remoteBufferOffset);
-    for (int i = 0; i < MAX_REMOTE_READ_ATTEMPTS; i ++) {
-      mRemoteBuffer =
-        readRemoteByteBuffer(mTachyonFS, mBlockInfo, remoteBufferOffset, remoteLength);
-      if (mRemoteBuffer != null) {
-        mRemoteBufferStartPage = PageUtils.getPageId(remoteBufferOffset);
-        break;
-      } else {
-        // The read failed, refresh the block info and try again
-        mRemoteBufferStartPage = -1;
-        mBlockInfo = mFile.getClientBlockInfo(mBlockIndex);
-        mSortedWorkers = buildSortedWorkers(mBlockInfo);
-      }
-    }
-    if (mRemoteBufferStartPage == -1) {
-      // We failed to fetch anything remotely, so return 0 bytes read
+    mRemoteBuffer =
+      readRemoteByteBuffer(mTachyonFS, mBlockInfo, mSortedWorkers, remoteBufferOffset,
+                           remoteLength);
+    if (mRemoteBuffer == null) {
+      // We failed to fetch anything remotely, so the remote buffer is null, and
+      // we return 0 bytes read
+      mRemoteBufferStartPage = -1;
       return 0;
     }
-    // Otherwise, we should be able to read into the buffer. We cache the entire read buffer if
-    // we're re-caching, then rewind it back to the beginning.
+    mRemoteBufferStartPage = PageUtils.getPageId(remoteBufferOffset);
+    // Now, we should be able to read into the buffer. We cache the entire read
+    // buffer if we're re-caching, then rewind it back to the beginning.
     if (mRecache) {
       mBlockCacher.writePages(mBlockInfo, PageUtils.getPageId(remoteBufferOffset), mRemoteBuffer);
       mRemoteBuffer.rewind();
