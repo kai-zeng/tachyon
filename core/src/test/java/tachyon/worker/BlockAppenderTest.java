@@ -45,11 +45,13 @@ public class BlockAppenderTest {
     String blockdir = mTfs.getLocalBlockTemporaryPath(blockId, 100);
     BlockAppender blockAppender = new BlockAppender(blockdir);
     blockAppender.append(buf);
+    Assert.assertEquals(100, blockAppender.getWrittenBytes());
     blockAppender.close();
     mTfs.cacheBlock(blockId);
     TachyonFile file = mTfs.getFile(fileId);
     long fileLen = file.length();
     Assert.assertEquals(100, fileLen);
+    Assert.assertEquals(100, blockAppender.getWrittenBytes());
   }
 
   @Test
@@ -65,6 +67,7 @@ public class BlockAppenderTest {
     TachyonFile file = mTfs.getFile(fileId);
     long fileLen = file.length();
     Assert.assertEquals(100, fileLen);
+    Assert.assertEquals(100, blockAppender.getWrittenBytes());
   }
 }
 
