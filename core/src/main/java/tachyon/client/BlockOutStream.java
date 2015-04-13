@@ -45,8 +45,6 @@ public class BlockOutStream extends OutStream {
   private final BlockAppender mBlockAppender;
   // The local directory the block is being written in
   private final String mBlockDir;
-  // We buffer writes to a ByteBuffer and periodically flush them to the block appender
-  private final ByteBuffer mBuffer;
 
   // When false, all write operations will fail
   private boolean mCanWrite = false;
@@ -95,7 +93,6 @@ public class BlockOutStream extends OutStream {
     }
     mBlockDir = mTachyonFS.getLocalBlockTemporaryPath(mBlockId, initialBytes);
     mBlockAppender = new BlockAppender(mBlockDir);
-    mBuffer = ByteBuffer.allocate(mUserConf.FILE_BUFFER_BYTES + 4);
     mAvailableBytes += initialBytes;
     LOG.info(mBlockDir + " was created!");
   }
@@ -121,7 +118,6 @@ public class BlockOutStream extends OutStream {
   @Override
   public void close() throws IOException {
     if (!mClosed) {
-      flushToBlockAppender();
       mBlockAppender.close();
       mTachyonFS.cacheBlock(mBlockId);
       mClosed = true;
@@ -131,16 +127,6 @@ public class BlockOutStream extends OutStream {
   @Override
   public void flush() throws IOException {
     // Since this only writes to memory, this flush is not outside visible.
-  }
-
-  /**
-   * Flushes the internal buffer to the block handler
-   * @throws IOException
-   */
-  private void flushToBlockAppender() throws IOException {
-    mBuffer.flip();
-    mBlockAppender.append(mBuffer);
-    mBuffer.clear();
   }
 
   /**
@@ -183,7 +169,7 @@ public class BlockOutStream extends OutStream {
           b.length, off, len));
     }
 
-    long newLen = mBlockAppender.getWrittenBytes() + mBuffer.position() + len;
+    long newLen = mBlockAppender.getWrittenBytes() + len;
     // If the new length is longer than the block capacity, throw an error. If it is greater than
     // what the worker has allocated for the given block, we need to request more space.
     if (newLen > mBlockCapacityByte) {
@@ -199,17 +185,7 @@ public class BlockOutStream extends OutStream {
       }
     }
 
-    if (len > mBuffer.remaining()) {
-      // Flush the existing buffer first then try to write
-      flushToBlockAppender();
-    }
-    if (len > mBuffer.remaining()) {
-      // At this point, the write is too big for the buffer, so write directly to the block handler
-      mBlockAppender.append(ByteBuffer.wrap(b, off, len));
-    } else {
-      // We can write to the buffer
-      mBuffer.put(b, off, len);
-    }
+    mBlockAppender.append(ByteBuffer.wrap(b, off, len));
   }
 
   @Override
