@@ -181,6 +181,7 @@ public class BlockInStream extends InStream {
 
   /**
    * Builds a sorted list of WorkerInfoPairs from the given client block info.
+   * We filter out any local worker addresses.
    *
    * @param blockInfo the metadata to create a sorted worker list out of
    * @return a list of WorkerInfoPairs sorted by storage tier level
@@ -188,6 +189,16 @@ public class BlockInStream extends InStream {
   private static List<WorkerInfoPair> buildSortedWorkers(ClientBlockInfo blockInfo) {
     List<WorkerInfoPair> ret = new ArrayList<WorkerInfoPair>();
     for (WorkerInfo worker : blockInfo.getWorkers()) {
+      try {
+        String host = worker.getAddress().mHost;
+        if (host.equals(InetAddress.getLocalHost().getHostName())
+            || host.equals(InetAddress.getLocalHost().getHostAddress())
+            || host.equals(NetworkUtils.getLocalHostName())) {
+          continue;
+        }
+      } catch (IOException e) {
+        LOG.error("Encountered an error: ", e);
+      }
       for (Long storageDirId : worker.getStorageDirIds()) {
         ret.add(new WorkerInfoPair(worker.getAddress(), storageDirId));
       }
