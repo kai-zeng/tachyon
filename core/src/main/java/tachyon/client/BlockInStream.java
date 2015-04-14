@@ -110,14 +110,14 @@ public class BlockInStream extends InStream {
   // A mapping of pages stored locally. This is null if there is no block stored locally.
   private final Map<Integer, MappedByteBuffer> mLocalBlocks;
 
-  // A ByteBuffer storing a range of pages read remotely (or from the UnderFS). For caching
-  // simplicity, the buffer can
-  // only contain entire pages.
-  private ByteBuffer mRemoteBuffer;
-  // The page that the current remote ByteBuffer starts on. If it's -1, then the buffer has nothing.
-  // Otherwise, position 0 on the remote buffer corresponds to the first byte in the block that this
-  // page refers to.
-  private int mRemoteBufferStartPage = -1;
+  // A ByteBuffer storing a range of pages read locally, remotely, or from the
+  // UnderFS. For caching simplicity, the buffer can only contain entire pages
+  // and must start on a page boundary.
+  private ByteBuffer mBuffer;
+  // The page that the current mBuffer starts on. If it's -1, then the buffer
+  // has nothing. Otherwise, position 0 on the remote buffer corresponds to the
+  // first byte in the block that this page refers to.
+  private int mBufferStartPage = -1;
 
   // An input stream for the checkpointed copy of the block. If we are ever unable to read part of
   // the block locally or from the workers, we use this checkpoint stream
@@ -255,14 +255,14 @@ public class BlockInStream extends InStream {
     int end = off + len;
     int bytesRead;
     if (off < end) {
-      // Read from mRemoteBuffer, since that should technically be the fastest
-      long remoteBufferOffset = PageUtils.getPageOffset(mRemoteBufferStartPage);
-      if (mRemoteBufferStartPage != -1 && mBlockPos >= remoteBufferOffset
-          && mBlockPos < remoteBufferOffset + mRemoteBuffer.limit()) {
+      // Read from mBuffer, since that should technically be the fastest
+      long remoteBufferOffset = PageUtils.getPageOffset(mBufferStartPage);
+      if (mBufferStartPage != -1 && mBlockPos >= remoteBufferOffset
+          && mBlockPos < remoteBufferOffset + mBuffer.limit()) {
         // Set the position of the buffer to the block position relative to the buffer offset
-        mRemoteBuffer.position((int) (mBlockPos - remoteBufferOffset));
-        int bytesToRead = Math.min(mRemoteBuffer.remaining(), len);
-        mRemoteBuffer.get(b, off, bytesToRead);
+        mBuffer.position((int) (mBlockPos - remoteBufferOffset));
+        int bytesToRead = Math.min(mBuffer.remaining(), len);
+        mBuffer.get(b, off, bytesToRead);
         off += bytesToRead;
         mBlockPos += bytesToRead;
       }
@@ -295,19 +295,21 @@ public class BlockInStream extends InStream {
   private int readLocal(byte[] b, int off, int len) throws IOException {
     if (mLocalBlocks != null) {
       // Starting from the page being read, we try to read as much as we have stored locally
+      // LOG.info("Reading " + len + " bytes from " + mBlockPos);
       int bytesRead = 0;
       while (bytesRead < len) {
-        int readPage = PageUtils.getPageId(mBlockPos + bytesRead);
-        MappedByteBuffer pageBuffer = mLocalBlocks.get(readPage);
-        if (pageBuffer == null) {
+        mBufferStartPage = PageUtils.getPageId(mBlockPos + bytesRead);
+        mBuffer = mLocalBlocks.get(mBufferStartPage);
+        if (mBuffer == null) {
           return bytesRead;
         }
         // We want to read the minimum of len and the remaining bytes in the page
-        pageBuffer.position((int) (mBlockPos + bytesRead - PageUtils.getPageOffset(readPage)));
-        int bytesToRead = Math.min(pageBuffer.remaining(), len - bytesRead);
-        pageBuffer.get(b, off + bytesRead, bytesToRead);
+        mBuffer.position((int) (mBlockPos + bytesRead - PageUtils.getPageOffset(mBufferStartPage)));
+        int bytesToRead = Math.min(mBuffer.remaining(), len - bytesRead);
+        mBuffer.get(b, off + bytesRead, bytesToRead);
         bytesRead += bytesToRead;
       }
+      // LOG.info("Finished reading " + bytesRead + " bytes");
       return bytesRead;
     } else {
       return 0;
@@ -318,27 +320,27 @@ public class BlockInStream extends InStream {
     // Try and read remotely starting from the page that mBlockPos is on
     long remoteBufferOffset = PageUtils.getPageOffset(PageUtils.getPageId(mBlockPos));
     long remoteLength = Math.min(BUFFER_SIZE, mBlockInfo.getLength() - remoteBufferOffset);
-    mRemoteBuffer =
+    mBuffer =
       readRemoteByteBuffer(mTachyonFS, mBlockInfo, mSortedWorkers, remoteBufferOffset,
                            remoteLength);
-    if (mRemoteBuffer == null) {
+    if (mBuffer == null) {
       // We failed to fetch anything remotely, so the remote buffer is null, and
       // we return 0 bytes read
-      mRemoteBufferStartPage = -1;
+      mBufferStartPage = -1;
       return 0;
     }
-    mRemoteBufferStartPage = PageUtils.getPageId(remoteBufferOffset);
+    mBufferStartPage = PageUtils.getPageId(remoteBufferOffset);
     // Now, we should be able to read into the buffer. We cache the entire read
     // buffer if we're re-caching, then rewind it back to the beginning.
     if (mRecache) {
-      mBlockCacher.writePages(mBlockInfo, PageUtils.getPageId(remoteBufferOffset), mRemoteBuffer);
-      mRemoteBuffer.rewind();
+      mBlockCacher.writePages(mBlockInfo, PageUtils.getPageId(remoteBufferOffset), mBuffer);
+      mBuffer.rewind();
     }
     assert mBlockPos >= remoteBufferOffset
-      && mBlockPos < remoteBufferOffset + mRemoteBuffer.limit();
-    mRemoteBuffer.position((int) (mBlockPos - remoteBufferOffset));
-    int bytesToRead = Math.min(mRemoteBuffer.remaining(), len);
-    mRemoteBuffer.get(b, off, bytesToRead);
+      && mBlockPos < remoteBufferOffset + mBuffer.limit();
+    mBuffer.position((int) (mBlockPos - remoteBufferOffset));
+    int bytesToRead = Math.min(mBuffer.remaining(), len);
+    mBuffer.get(b, off, bytesToRead);
     return bytesToRead;
   }
 
@@ -463,17 +465,17 @@ public class BlockInStream extends InStream {
     // correct parts to the argument array.
     if (mRecache) {
       // We can only read entire pages from the checkpoint stream, because we have to cache it, so
-      // we read it into mRemoteBuffer. This way, future reads can get the data from mRemoteBuffer.
-      assert mRemoteBufferStartPage == -1 || !mRemoteBuffer.hasRemaining();
+      // we read it into mBuffer. This way, future reads can get the data from mBuffer.
+      assert mBufferStartPage == -1 || !mBuffer.hasRemaining();
       int lenToRead =
           (int) (Math.min(mBlockInfo.getLength(), PageUtils.ceilingPageMultiple(mBlockPos + len))
               - mCheckpointPos);
-      mRemoteBuffer = ByteBuffer.allocate(lenToRead);
-      mRemoteBufferStartPage = PageUtils.getPageId(mCheckpointPos);
+      mBuffer = ByteBuffer.allocate(lenToRead);
+      mBufferStartPage = PageUtils.getPageId(mCheckpointPos);
       int bytesRead = 0;
       while (bytesRead < lenToRead) {
         int justRead =
-            mCheckpointInputStream.read(mRemoteBuffer.array(), bytesRead, lenToRead - bytesRead);
+            mCheckpointInputStream.read(mBuffer.array(), bytesRead, lenToRead - bytesRead);
         if (justRead <= 0) {
           // We failed to read as many bytes as needed, so we'll throw an error. Here, just return
           // the number of bytes we did read
@@ -481,11 +483,11 @@ public class BlockInStream extends InStream {
         }
         bytesRead += justRead;
       }
-      mBlockCacher.writePages(mBlockInfo, PageUtils.getPageId(mCheckpointPos), mRemoteBuffer);
+      mBlockCacher.writePages(mBlockInfo, PageUtils.getPageId(mCheckpointPos), mBuffer);
       // To read into the argument array, we have to set the position to the relative difference
       // between mBlockPos and mCheckpointPos
-      mRemoteBuffer.position((int) (mBlockPos - mCheckpointPos));
-      mRemoteBuffer.get(b, off, len);
+      mBuffer.position((int) (mBlockPos - mCheckpointPos));
+      mBuffer.get(b, off, len);
       // Now the new checkpoint position is incremented lenToRead bytes
       mCheckpointPos += lenToRead;
     } else {
