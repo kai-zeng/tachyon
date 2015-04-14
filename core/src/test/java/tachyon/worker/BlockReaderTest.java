@@ -133,4 +133,16 @@ public class BlockReaderTest {
       Assert.assertEquals(bound.getSecond(), buf);
     }
   }
+
+  // If we write a page smaller than the page length and request a channel between the length of the
+  // file we wrote and the maximum page size, getChannels should return NULL
+  @Test
+  public void getChannelsPastPageLength() throws IOException {
+    int fileId = TestUtils.createByteFile(mTfs, TestUtils.uniqPath(), WriteType.MUST_CACHE, PAGE_SIZE / 2);
+    TachyonFile file = mTfs.getFile(fileId);
+    String blockDir = file.getLocalDirectory(0);
+    BlockReader blockReader = new BlockReader(blockDir);
+    Assert.assertEquals(null, blockReader.getChannels(0, PAGE_SIZE));
+  }
+
 }

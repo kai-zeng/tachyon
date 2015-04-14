@@ -106,7 +106,6 @@ public final class BlockReader {
    * @throws IOException if the bounds are out of range of the block or some other I/O error
    */
   public CloseableChannels getChannels(long offset, long length) throws IOException {
-    String error = null;
     if (offset < 0) {
       throw new IOException("Offset cannot be negative");
     } else if (length < 0) {
@@ -114,14 +113,11 @@ public final class BlockReader {
     }
 
     List<FileChannel> ret = new ArrayList<FileChannel>();
+    int pageId = PageUtils.getPageId(offset);
     long endPos = offset + length;
     while (offset < endPos) {
-      // Read the minimum of till the end of the page or till the end of the specified range
-      int pageId = PageUtils.getPageId(offset);
-      long relativePos = offset - PageUtils.getPageOffset(pageId);
-      long bytesToRead = Math.min(UserConf.get().PAGE_SIZE_BYTE - relativePos, endPos - offset);
-      // Get the correct channel and seek to the correct starting position. If the required page is
-      // not here, we close all the existing channels and return null
+      // Get the file that we need to read. If it doesn't exist, we close all the existing channels
+      // and return null.
       File pageFile = mPageFiles.get(pageId);
       if (pageFile == null) {
         for (FileChannel chan : ret) {
@@ -129,10 +125,14 @@ public final class BlockReader {
         }
         return null;
       }
+      long relativePos = offset - PageUtils.getPageOffset(pageId);
+      // Read the minimum of till the end of the page or till the end of the specified range
+      long bytesToRead = Math.min(pageFile.length() - relativePos, endPos - offset);
       FileChannel addChannel = FileChannel.open(pageFile.toPath(), StandardOpenOption.READ);
       addChannel.position(relativePos);
       ret.add(addChannel);
       offset += bytesToRead;
+      pageId++;
     }
     return new CloseableChannels(ret);
   }
