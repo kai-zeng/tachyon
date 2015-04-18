@@ -55,7 +55,7 @@ public class UserConf extends Utils {
     HEARTBEAT_INTERVAL_MS =
         getLongProperty("tachyon.user.heartbeat.interval.ms", Constants.SECOND_MS);
     DEFAULT_BLOCK_SIZE_BYTE = getLongProperty("tachyon.user.default.block.size.byte", Constants.GB);
-    PAGE_SIZE_BYTE = getLongProperty("tachyon.user.page.size.byte", Constants.MB);
+    PAGE_SIZE_BYTE = getLongProperty("tachyon.user.page.size.byte", 1 * Constants.MB);
     REMOTE_READ_BUFFER_SIZE_BYTE =
         getIntProperty("tachyon.user.remote.read.buffer.size.byte", 8 * Constants.MB);
     DEFAULT_WRITE_TYPE =
