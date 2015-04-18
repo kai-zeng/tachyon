@@ -193,4 +193,18 @@ public final class BlockReader {
     }
     return ret;
   }
+
+  /**
+   * Returns FileChannel for the requested page
+   * @return an open FileChannel for the requested page, or null if the page
+   * isn't in the block. The caller is responsible for closing the channel.
+   * @throws IOException
+   */
+  public FileChannel getPageChannel(int pageId) throws IOException {
+    File pageFile = mPageFiles.get(pageId);
+    if (pageFile == null) {
+      return null;
+    }
+    return FileChannel.open(pageFile.toPath(), StandardOpenOption.READ);
+  }
 }

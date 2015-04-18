@@ -107,8 +107,15 @@ public class BlockInStream extends InStream {
   // the file would be mBlockInfo.offset + mBlockPos.
   private long mBlockPos = 0;
 
-  // A mapping of pages stored locally. This is null if there is no block stored locally.
-  private final Map<Integer, MappedByteBuffer> mLocalBlocks;
+  // A BlockReader for the portion of the block stored locally. If there is no
+  // local block, it is null.
+  private final BlockReader mLocalBlockReader;
+  // // The current local channel we are currently reading from. If we have no
+  // // local block or are not in a position to read locally, it is null.
+  // private FileChannel mLocalPageChannel = null;
+  // // The page id of the local file channel. If mLocalPageChannel is null, this
+  // // shouldn't be used.
+  // private int mLocalPageChannelId = -1;
 
   // A ByteBuffer storing a range of pages read locally, remotely, or from the
   // UnderFS. For caching simplicity, the buffer can only contain entire pages
@@ -161,10 +168,10 @@ public class BlockInStream extends InStream {
     String localBlockDir = mTachyonFS.lockBlock(mBlockInfo.getBlockId(), mBlockLockId);
     if (localBlockDir == null) {
       // There is no local block directory
-      mLocalBlocks = null;
+      mLocalBlockReader = null;
     } else {
       // Create a local block reader and get the mapped pages
-      mLocalBlocks = (new BlockReader(localBlockDir)).getMappedPages();
+      mLocalBlockReader = new BlockReader(localBlockDir);
     }
 
     // Set the UnderFS configuration
@@ -218,7 +225,7 @@ public class BlockInStream extends InStream {
     if (mCheckpointPos != -1) {
       mCheckpointInputStream.close();
     }
-    if (mLocalBlocks != null) {
+    if (mLocalBlockReader != null) {
       mTachyonFS.unlockBlock(mBlockInfo.getBlockId(), mBlockLockId);
     }
     mClosed = true;
@@ -254,7 +261,7 @@ public class BlockInStream extends InStream {
     }
     int end = off + len;
     int bytesRead;
-    if (off < end) {
+    if (off < end && mBuffer != null) {
       // Read from mBuffer, since that should technically be the fastest
       long remoteBufferOffset = PageUtils.getPageOffset(mBufferStartPage);
       if (mBufferStartPage != -1 && mBlockPos >= remoteBufferOffset
@@ -267,6 +274,17 @@ public class BlockInStream extends InStream {
         mBlockPos += bytesToRead;
       }
     }
+    // if (off < end && mLocalPageChannel != null) { // If the local page file
+    //   channel still has something left and is valid, // read from that long
+    //   pageChannelOffset = PageUtils.getPageOffset(mLocalPageChannelId); if
+    //   (mLocalPageChannelId != -1 && mBlockPos >= pageChannelOffset &&
+    //   mBlockPos < pageChannelOffset + mLocalPageChannel.size()) { // Set the
+    //   position of the channel to the block position relative to the // page
+    //   offset mLocalPageChannel.position(mBlockPos - pageChannelOffset); int
+    //   bytesToRead = Math.min((int) (mLocalPageChannel.size() -
+    //   mLocalPageChannel.position()), len);
+    //   mLocalPageChannel.read(ByteBuffer.wrap(b, off, bytesToRead)); off +=
+    //   bytesToRead; mBlockPos += bytesToRead; } }
     if (off < end) {
       // Read as much as possible locally
       bytesRead = readLocal(b, off, end - off);
@@ -293,27 +311,41 @@ public class BlockInStream extends InStream {
   }
 
   private int readLocal(byte[] b, int off, int len) throws IOException {
-    if (mLocalBlocks != null) {
-      // Starting from the page being read, we try to read as much as we have stored locally
-      // LOG.info("Reading " + len + " bytes from " + mBlockPos);
-      int bytesRead = 0;
-      while (bytesRead < len) {
-        mBufferStartPage = PageUtils.getPageId(mBlockPos + bytesRead);
-        mBuffer = mLocalBlocks.get(mBufferStartPage);
-        if (mBuffer == null) {
-          return bytesRead;
-        }
-        // We want to read the minimum of len and the remaining bytes in the page
-        mBuffer.position((int) (mBlockPos + bytesRead - PageUtils.getPageOffset(mBufferStartPage)));
-        int bytesToRead = Math.min(mBuffer.remaining(), len - bytesRead);
-        mBuffer.get(b, off + bytesRead, bytesToRead);
-        bytesRead += bytesToRead;
-      }
-      // LOG.info("Finished reading " + bytesRead + " bytes");
-      return bytesRead;
-    } else {
+    if (mLocalBlockReader == null) {
       return 0;
     }
+    // Starting from the page being read, we try to read as much as we have
+    // stored locally
+    int bytesRead = 0;
+    while (bytesRead < len) {
+      int readPage = PageUtils.getPageId(mBlockPos + bytesRead);
+      int relativePagePosition = (int) (mBlockPos + bytesRead - PageUtils.getPageOffset(readPage));
+      FileChannel localPageChannel = mLocalBlockReader.getPageChannel(readPage);
+      if (localPageChannel == null) {
+        return bytesRead;
+      }
+      try {
+        // If our read length covers the remainder of the channel, then stream
+        // directly from the channel
+        if (len - bytesRead >= localPageChannel.size() - relativePagePosition) {
+          localPageChannel.position(relativePagePosition);
+          int bytesToRead = (int) localPageChannel.size() - relativePagePosition;
+          bytesRead += localPageChannel.read(ByteBuffer.wrap(b, off + bytesRead, bytesToRead));
+        } else {
+          // Otherwise, we the map the channel into memory. Hopefully this
+          // memory-mapping will pay off since future reads will also be small
+          int bytesToRead = len - bytesRead;
+          mBufferStartPage = readPage;
+          mBuffer = localPageChannel.map(FileChannel.MapMode.READ_ONLY, 0, localPageChannel.size());
+          mBuffer.position(relativePagePosition);
+          mBuffer.get(b, off + bytesRead, bytesToRead);
+          bytesRead += bytesToRead;
+        }
+      } finally {
+        localPageChannel.close();
+      }
+    }
+    return bytesRead;
   }
 
   private int readRemote(byte[] b, int off, int len) throws IOException {
