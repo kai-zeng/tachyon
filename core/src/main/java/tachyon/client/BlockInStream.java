@@ -274,17 +274,6 @@ public class BlockInStream extends InStream {
         mBlockPos += bytesToRead;
       }
     }
-    // if (off < end && mLocalPageChannel != null) { // If the local page file
-    //   channel still has something left and is valid, // read from that long
-    //   pageChannelOffset = PageUtils.getPageOffset(mLocalPageChannelId); if
-    //   (mLocalPageChannelId != -1 && mBlockPos >= pageChannelOffset &&
-    //   mBlockPos < pageChannelOffset + mLocalPageChannel.size()) { // Set the
-    //   position of the channel to the block position relative to the // page
-    //   offset mLocalPageChannel.position(mBlockPos - pageChannelOffset); int
-    //   bytesToRead = Math.min((int) (mLocalPageChannel.size() -
-    //   mLocalPageChannel.position()), len);
-    //   mLocalPageChannel.read(ByteBuffer.wrap(b, off, bytesToRead)); off +=
-    //   bytesToRead; mBlockPos += bytesToRead; } }
     if (off < end) {
       // Read as much as possible locally
       bytesRead = readLocal(b, off, end - off);
