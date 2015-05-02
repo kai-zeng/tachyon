@@ -73,9 +73,9 @@ public class BlockInStreamTest {
   public void readWholeFileTest() throws IOException {
     String uniqPath = TestUtils.uniqPath();
     for (int k = MIN_LEN; k <= MAX_LEN; k += DELTA) {
-      for (WriteType writeOp: WriteType.values()) {
+      for (WriteType writeOp : WriteType.values()) {
         for (ReadType readOp : ReadType.values()) {
-          for (int readMechanism = 0; readMechanism < 3; readMechanism++) {
+          for (int readMechanism = 0; readMechanism < 3; readMechanism ++) {
             int fileId =
                 TestUtils.createByteFile(sTfs, String.format("%s/file_%s_%s_%s_%s", uniqPath, k,
                     writeOp, readOp, readMechanism), writeOp, k);
@@ -161,7 +161,8 @@ public class BlockInStreamTest {
     Assert.assertNotNull(blockDir);
     BlockReader blockReader = new BlockReader(blockDir);
     Assert.assertEquals(PAGE_SIZE, blockReader.getSize());
-    Assert.assertEquals(TestUtils.getIncreasingByteBuffer(PAGE_SIZE), blockReader.read(0, PAGE_SIZE));
+    Assert.assertEquals(TestUtils.getIncreasingByteBuffer(PAGE_SIZE),
+        blockReader.read(0, PAGE_SIZE));
   }
 
   // TODO Figure out a way to test reading from remote workers (Seems like the local cluster can't
@@ -190,7 +191,8 @@ public class BlockInStreamTest {
     Assert.assertNotNull(blockDir);
     BlockReader blockReader = new BlockReader(blockDir);
     Assert.assertEquals(PAGE_SIZE * 2, blockReader.getSize());
-    Assert.assertEquals(TestUtils.getIncreasingByteBuffer(PAGE_SIZE), blockReader.read(0, PAGE_SIZE));
+    Assert.assertEquals(TestUtils.getIncreasingByteBuffer(PAGE_SIZE),
+        blockReader.read(0, PAGE_SIZE));
     Assert.assertEquals(TestUtils.getIncreasingByteBuffer(seekPos - PAGE_SIZE + 1, PAGE_SIZE),
         blockReader.read(seekPos - PAGE_SIZE + 1, PAGE_SIZE));
   }
@@ -221,7 +223,8 @@ public class BlockInStreamTest {
     Assert.assertNotNull(blockDir);
     BlockReader blockReader = new BlockReader(blockDir);
     Assert.assertEquals(PAGE_SIZE * 2, blockReader.getSize());
-    Assert.assertEquals(TestUtils.getIncreasingByteBuffer(PAGE_SIZE), blockReader.read(0, PAGE_SIZE));
+    Assert.assertEquals(TestUtils.getIncreasingByteBuffer(PAGE_SIZE),
+        blockReader.read(0, PAGE_SIZE));
     Assert.assertEquals(TestUtils.getIncreasingByteBuffer(skipPos - PAGE_SIZE + 1, PAGE_SIZE),
         blockReader.read(skipPos - PAGE_SIZE + 1, PAGE_SIZE));
   }
