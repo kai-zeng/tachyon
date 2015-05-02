@@ -173,10 +173,11 @@ public final class StorageDir {
   public boolean cacheBlock(long userId, long blockId) throws IOException {
     String srcPath = getUserTempBlockPath(userId, blockId).toString();
     String dstPath = getBlockDirPath(blockId).toString();
-    Long allocatedBytes = mTempBlockAllocatedBytes.remove(new Pair<Long, Long>(userId, blockId));
+    Pair<Long, Long> blockInfo = new Pair<Long, Long>(userId, blockId);
+    Long allocatedBytes = mTempBlockAllocatedBytes.get(blockInfo);
     if (!mFs.exists(srcPath) || allocatedBytes == null) {
       cancelBlock(userId, blockId);
-      throw new IOException("Block file doesn't exist! blockId:" + blockId + " " + srcPath);
+      throw new IOException("Block dir doesn't exist! blockId:" + blockId + " " + srcPath);
     }
     long cachedBlockSize = new BlockReader(srcPath).getSize();
     if (cachedBlockSize < 0) {
@@ -184,6 +185,7 @@ public final class StorageDir {
       throw new IOException("Negative block size! blockId:" + blockId);
     }
     returnSpace(userId, allocatedBytes - cachedBlockSize);
+    mTempBlockAllocatedBytes.remove(blockId);
     new BlockOperator(srcPath).move(dstPath);
     addBlockId(blockId, cachedBlockSize, (new BlockReader(dstPath)).getSize(), false);
     updateUserOwnBytes(userId, -cachedBlockSize);

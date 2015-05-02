@@ -89,7 +89,6 @@ public class HdfsFileInputStream extends InputStream implements Seekable, Positi
     if (mHdfsInputStream != null) {
       mHdfsInputStream.close();
     }
-    mTFS.close();
   }
 
   private void getHdfsInputStream(long seekPosition) throws IOException {

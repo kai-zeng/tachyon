@@ -61,7 +61,7 @@ public class StorageDirTest {
       exception = e;
     }
     Assert.assertEquals(
-        "Block file doesn't exist! blockId:100 " + mSrcDir.getUserTempFilePath(USER_ID, blockId),
+        "Block dir doesn't exist! blockId:100 " + mSrcDir.getUserTempBlockPath(USER_ID, blockId),
         exception.getMessage());
     Assert.assertEquals(CAPACITY, mSrcDir.getAvailableBytes());
     Assert.assertEquals(0, mSrcDir.getUserOwnBytes(USER_ID));
