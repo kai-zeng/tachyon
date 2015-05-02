@@ -128,12 +128,12 @@ public final class StorageDir {
    * Adds a block into the dir.
    * 
    * @param blockId the Id of the block
-   * @param srcSizeBytes the number of bytes copied into the block destination
-   * @param dstSizeBytes the number of bytes currently in the block destination
+   * @param srcSizeBytes the number of bytes in the source path
+   * @param dstAddedBytes the number of bytes actually added to the destination
    * @param report need to be reported during heartbeat with master
    */
-  private void addBlockId(long blockId, long srcSizeBytes, long dstSizeBytes, boolean report) {
-    addBlockId(blockId, srcSizeBytes, dstSizeBytes, System.currentTimeMillis(), report);
+  private void addBlockId(long blockId, long srcSizeBytes, long dstAddedBytes, boolean report) {
+    addBlockId(blockId, srcSizeBytes, dstAddedBytes, System.currentTimeMillis(), report);
   }
 
   /**
@@ -141,21 +141,28 @@ public final class StorageDir {
    * 
    * @param blockId Id of the block
    * @param srcSizeBytes the number of bytes copied into the block destination
-   * @param dstSizeBytes the number of bytes currently in the block destination
+   * @param dstAddedBytes the number of bytes actually added to the destination
    * @param accessTimeMs access time of the block in millisecond.
    * @param report whether need to be reported During heart beat with master
    */
-  private void addBlockId(long blockId, long srcSizeBytes, long dstSizeBytes, long accessTimeMs,
+  private void addBlockId(long blockId, long srcSizeBytes, long dstAddedBytes, long accessTimeMs,
       boolean report) {
     synchronized (mLastBlockAccessTimeMs) {
       mLastBlockAccessTimeMs.put(blockId, accessTimeMs);
       if (mBlockSizes.containsKey(blockId)) {
         // Then we have allocated srcSizeBytes + mBlockSizes.get(blockId) bytes for the block, but
-        // we only need dstSizeBytes, which should be less than that. So we can return the
-        // difference.
-        mSpaceCounter.returnUsedBytes(srcSizeBytes + mBlockSizes.remove(blockId) - dstSizeBytes);
+        // we only need dstAddedBytes + mBlockSizes.get(blockId), which should be less or equal to
+        // that. So we can return the
+        // difference. There are DEFINITELY some race conditions here that I haven't addressed,
+        // concerning caching different parts of the block concurrently.
+        mSpaceCounter.returnUsedBytes(srcSizeBytes - dstAddedBytes);
       }
-      mBlockSizes.put(blockId, dstSizeBytes);
+      Long oldBlockSize = mBlockSizes.putIfAbsent(blockId, dstAddedBytes);
+      if (oldBlockSize != null) {
+        while (!mBlockSizes.replace(blockId, oldBlockSize, oldBlockSize + dstAddedBytes)) {
+          oldBlockSize = mBlockSizes.get(blockId);
+        }
+      }
       if (report) {
         mAddedBlockIdList.add(blockId);
       }
@@ -174,20 +181,21 @@ public final class StorageDir {
     String srcPath = getUserTempBlockPath(userId, blockId).toString();
     String dstPath = getBlockDirPath(blockId).toString();
     Pair<Long, Long> blockInfo = new Pair<Long, Long>(userId, blockId);
-    Long allocatedBytes = mTempBlockAllocatedBytes.get(blockInfo);
-    if (!mFs.exists(srcPath) || allocatedBytes == null) {
+
+    if (!(mFs.exists(srcPath) && mTempBlockAllocatedBytes.containsKey(blockInfo))) {
       cancelBlock(userId, blockId);
       throw new IOException("Block dir doesn't exist! blockId:" + blockId + " " + srcPath);
     }
-    long cachedBlockSize = new BlockReader(srcPath).getSize();
+    long cachedBlockSize = (new BlockReader(srcPath)).getSize();
     if (cachedBlockSize < 0) {
       cancelBlock(userId, blockId);
       throw new IOException("Negative block size! blockId:" + blockId);
     }
+
+    Long allocatedBytes = mTempBlockAllocatedBytes.remove(blockInfo);
     returnSpace(userId, allocatedBytes - cachedBlockSize);
-    mTempBlockAllocatedBytes.remove(blockId);
-    new BlockOperator(srcPath).move(dstPath);
-    addBlockId(blockId, cachedBlockSize, (new BlockReader(dstPath)).getSize(), false);
+    long dstBytesAdded = new BlockOperator(srcPath).move(dstPath);
+    addBlockId(blockId, cachedBlockSize, dstBytesAdded, false);
     updateUserOwnBytes(userId, -cachedBlockSize);
     return true;
   }
@@ -264,8 +272,8 @@ public final class StorageDir {
     String srcPath = getBlockDirPath(blockId).toString();
     String dstPath = dstDir.getBlockDirPath(blockId).toString();
     BlockOperator blockOperator = new BlockOperator(srcPath);
-    blockOperator.copy(dstPath);
-    dstDir.addBlockId(blockId, getBlockSize(blockId), (new BlockReader(dstPath)).getSize(),
+    long dstBytesAdded = blockOperator.copy(dstPath);
+    dstDir.addBlockId(blockId, getBlockSize(blockId), dstBytesAdded,
         mLastBlockAccessTimeMs.get(blockId), true);
     return true;
   }
