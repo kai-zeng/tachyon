@@ -23,6 +23,7 @@ import java.nio.ByteBuffer;
 import java.nio.channels.Channels;
 import java.nio.channels.FileChannel;
 import java.nio.channels.WritableByteChannel;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
 
@@ -62,19 +63,28 @@ public final class BlockOperator {
    * Copies the block to the given destination directory
    * 
    * @param path the path of the directory to copy the block to, which must be on the same machine
+   * @return the number of bytes added to the destination directory
    * @throws IOException if the given path is invalid or a copy operation fails
    */
-  public void copy(String path) throws IOException {
+  public long copy(String path) throws IOException {
     checkDeleted();
     File dstDir = new File(Preconditions.checkNotNull(path));
     if (dstDir.exists() && dstDir.isFile()) {
       throwExistingPathNotDirectory(path);
     }
     dstDir.mkdirs();
+    long bytesAdded = 0;
     for (File pageFile : mBlockDir.listFiles()) {
-      Files.copy(pageFile.toPath(), new File(dstDir, pageFile.getName()).toPath(),
-          StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.COPY_ATTRIBUTES);
+      try {
+        File dstFile = new File(dstDir, pageFile.getName());
+        Files.copy(pageFile.toPath(), dstFile.toPath(),
+            StandardCopyOption.COPY_ATTRIBUTES);
+        bytesAdded += dstFile.length();
+      } catch (FileAlreadyExistsException e) {
+        // This is okay, we just don't add to bytesAdded
+      }
     }
+    return bytesAdded;
   }
 
   /**
@@ -125,9 +135,10 @@ public final class BlockOperator {
    * future operations will be possible on it.
    *
    * @param path the path of the directory to move the block to, which must be on the same machine
+   * @return the number of bytes added to the destination directory
    * @throws IOException if the given path is invalid or a move operation fails
    */
-  public void move(String path) throws IOException {
+  public long move(String path) throws IOException {
     // This has to be implemented by moving each file in the block individually. It's hard to just
     // rename the source directory, even if the destination doesn't exist, because if two threads
     // are caching to the same block destination, then it's difficult to atomicize the directory
@@ -140,12 +151,19 @@ public final class BlockOperator {
       throwExistingPathNotDirectory(path);
     }
     dstDir.mkdirs();
+    long bytesAdded = 0;
     for (File pageFile : mBlockDir.listFiles()) {
-      Files.move(pageFile.toPath(), new File(dstDir, pageFile.getName()).toPath(),
-          StandardCopyOption.REPLACE_EXISTING);
+      try {
+        File dstFile = new File(dstDir, pageFile.getName());
+        Files.move(pageFile.toPath(), dstFile.toPath());
+        bytesAdded += dstFile.length();
+      } catch (FileAlreadyExistsException e) {
+        // This is okay, we just don't add this file to the bytesAdded
+      }
     }
     mBlockDir.delete();
     mDeleted = true;
+    return bytesAdded;
   }
 
   /**
