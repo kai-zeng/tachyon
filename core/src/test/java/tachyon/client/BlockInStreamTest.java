@@ -225,4 +225,29 @@ public class BlockInStreamTest {
     Assert.assertEquals(TestUtils.getIncreasingByteBuffer(skipPos - PAGE_SIZE + 1, PAGE_SIZE),
         blockReader.read(skipPos - PAGE_SIZE + 1, PAGE_SIZE));
   }
+
+  /**
+   * Test reading the file with CACHE twice. It should still work even though its caching nothing in
+   * the end.
+   */
+  @Test
+  public void readCacheTwiceTest() throws IOException {
+    String uniqPath = TestUtils.uniqPath();
+    int fileId = TestUtils.createByteFile(sTfs, uniqPath + "/file", WriteType.THROUGH, BLOCK_SIZE);
+    TachyonFile file = sTfs.getFile(fileId);
+
+    InStream is = file.getInStream(ReadType.CACHE);
+    byte[] results = new byte[(int) file.length()];
+    int ret = is.read(results, 0, results.length);
+    Assert.assertEquals(BLOCK_SIZE, ret);
+    is.close();
+    Assert.assertTrue(TestUtils.equalIncreasingByteArray(BLOCK_SIZE, results));
+
+    is = file.getInStream(ReadType.CACHE);
+    results = new byte[(int) file.length()];
+    ret = is.read(results, 0, results.length);
+    Assert.assertEquals(BLOCK_SIZE, ret);
+    is.close();
+    Assert.assertTrue(TestUtils.equalIncreasingByteArray(BLOCK_SIZE, results));
+  }
 }
