@@ -160,20 +160,18 @@ public final class BlockReader {
     if (channels == null) {
       return null;
     }
-    // We create a ByteBuffer large enough to hold the requested range and copy
-    // the correct pages in.
-    // TODO There might be a way to wrap multiple mapped byte buffers into a larger one, so that we
-    // can avoid copying.
-    ByteBuffer ret = ByteBuffer.allocate((int) length);
     try {
+      // We create a ByteBuffer large enough to hold the requested range and copy
+      // the correct pages in.
+      ByteBuffer ret = ByteBuffer.allocate((int) length);
       for (FileChannel channel : channels) {
         channel.read(ret);
       }
+      ret.flip();
+      return ret;
     } finally {
       channels.close();
     }
-    ret.flip();
-    return ret;
   }
 
   /**
