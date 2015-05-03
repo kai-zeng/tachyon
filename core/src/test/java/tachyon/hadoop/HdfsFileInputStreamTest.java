@@ -71,11 +71,11 @@ public class HdfsFileInputStreamTest {
   @Before
   public final void before() throws IOException {
     ClientFileInfo fileInfo = mTfs.getFileStatus(-1, new TachyonURI("/testFile1"));
-    mInMemInputStream = new HdfsFileInputStream(mTfs, fileInfo.getId(),
+    mInMemInputStream = new HdfsFileInputStream(mLocalTachyonCluster.getClient(), fileInfo.getId(),
         new Path(fileInfo.getUfsPath()), new Configuration(), BUFFER_SIZE);
 
     fileInfo = mTfs.getFileStatus(-1, new TachyonURI("/testFile2"));
-    mUfsInputStream = new HdfsFileInputStream(mTfs, fileInfo.getId(),
+    mUfsInputStream = new HdfsFileInputStream(mLocalTachyonCluster.getClient(), fileInfo.getId(),
         new Path(fileInfo.getUfsPath()), new Configuration(), BUFFER_SIZE);
   }
 
