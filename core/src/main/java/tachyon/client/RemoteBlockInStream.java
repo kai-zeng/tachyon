@@ -360,6 +360,9 @@ public class RemoteBlockInStream extends BlockInStream {
    **/
   private boolean setupStreamFromUnderFs() throws IOException {
     if (mCheckpointInputStream == null || mBlockPos < mCheckpointPos) {
+      if (mCheckpointInputStream != null) {
+        mCheckpointInputStream.close();
+      }
       // We need to open the stream first, or reopen it if we went past our current block pos (which
       // can happen if we seek backwards
       String checkpointPath = mFile.getUfsPath();
