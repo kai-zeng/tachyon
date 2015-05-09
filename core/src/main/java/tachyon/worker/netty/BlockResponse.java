@@ -54,20 +54,41 @@ public final class BlockResponse {
     @Override
     protected void encode(final ChannelHandlerContext ctx, final BlockResponse msg,
         final List<Object> out) throws Exception {
-      out.add(createHeader(ctx, msg));
       BlockReader blockReader = msg.getBlockReader();
-      if (blockReader != null) {
+      if (blockReader == null) {
+        // The msg was an error message, so just write the header and return
+        out.add(createHeader(ctx, msg));
+        return;
+      }
+      boolean success = false;
+      try {
         switch (WorkerConf.get().NETTY_FILE_TRANSFER_TYPE) {
           case MAPPED:
             ByteBuffer data = blockReader.read(msg.getOffset(), msg.getLength());
-            out.add(Unpooled.wrappedBuffer(data));
+            if (data != null) {
+              success = true;
+              out.add(Unpooled.wrappedBuffer(data));
+            }
             break;
           case TRANSFER:
-            out.add(blockReader.getChannels(msg.getOffset(), msg.getLength()));
+            BlockReader.CloseableChannels channels =
+                blockReader.getChannels(msg.getOffset(), msg.getLength());
+            if (channels != null) {
+              success = true;
+              out.add(channels);
+            }
             break;
           default:
             throw new AssertionError("Unknown file transfer type: "
                 + WorkerConf.get().NETTY_FILE_TRANSFER_TYPE);
+        }
+      } finally {
+        if (success) {
+          // Add the actual header for the message at the beginning
+          out.add(0, createHeader(ctx, msg));
+        } else {
+          // We failed to read, add a header for the BlockResponseError message
+          out.add(0, createHeader(ctx, BlockResponse.createErrorResponse(msg.getBlockId())));
         }
       }
     }
