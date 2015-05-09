@@ -59,10 +59,8 @@ public final class DataServerHandler extends ChannelInboundHandlerAdapter {
     try {
       validateInput(req);
       blockReader = new BlockReader(storageDir.getBlockDirPath(blockId).toString());
-      validateBounds(req, blockReader.getSize());
-      final long readLength = returnLength(offset, len, blockReader.getSize());
       ChannelFuture future =
-          ctx.writeAndFlush(new BlockResponse(blockId, offset, readLength, blockReader));
+          ctx.writeAndFlush(new BlockResponse(blockId, offset, len, blockReader));
       future.addListener(ChannelFutureListener.CLOSE);
       storageDir.accessBlock(blockId);
       LOG.info("Response remote request by reading from {}, preparation done.",
@@ -82,32 +80,6 @@ public final class DataServerHandler extends ChannelInboundHandlerAdapter {
   public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
     LOG.warn("Exception thrown while processing request", cause);
     ctx.close();
-  }
-
-  /**
-   * Returns how much of a file to read. When {@code len} is {@code -1}, then
-   * {@code fileLength - offset} is used.
-   */
-  private long returnLength(final long offset, final long len, final long fileLength) {
-    if (len == -1) {
-      return fileLength - offset;
-    } else {
-      return len;
-    }
-  }
-
-  private void validateBounds(final BlockRequest req, final long fileLength) {
-    if (req.getOffset() > fileLength) {
-      String msg =
-          String.format("Offset(%d) is larger than file length(%d)", req.getOffset(), fileLength);
-      throw new IllegalArgumentException(msg);
-    }
-    if (req.getLength() != -1 && req.getOffset() + req.getLength() > fileLength) {
-      String msg =
-          String.format("Offset(%d) plus length(%d) is larger than file length(%d)",
-              req.getOffset(), req.getLength(), fileLength);
-      throw new IllegalArgumentException(msg);
-    }
   }
 
   private void validateInput(final BlockRequest req) {
