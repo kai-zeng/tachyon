@@ -530,7 +530,7 @@ public class BlockInStream extends InStream {
       // Otherwise, just read in the necessary amount
       int bytesRead = 0;
       while (bytesRead < len) {
-        int justRead = mCheckpointInputStream.read(b, off + bytesRead, len);
+        int justRead = mCheckpointInputStream.read(b, off + bytesRead, len - bytesRead);
         if (justRead <= 0) {
           return bytesRead;
         }
