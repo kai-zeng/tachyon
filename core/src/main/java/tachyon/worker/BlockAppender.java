@@ -24,6 +24,7 @@ import java.nio.ByteBuffer;
 
 import com.google.common.base.Preconditions;
 
+import tachyon.Constants;
 import tachyon.conf.UserConf;
 import tachyon.util.CommonUtils;
 import tachyon.util.PageUtils;
@@ -55,9 +56,9 @@ public final class BlockAppender implements Closeable {
    */
   public BlockAppender(String blockDir) throws IOException {
     mBlockDir = new File(Preconditions.checkNotNull(blockDir));
-    // We buffer writes up to half the page size, since larger than that, it would probably be
+    // We buffer writes up 4KB, since larger than that, it would probably be
     // better to write directly to the file.
-    mPageBuf = ByteBuffer.allocate((int) (UserConf.get().PAGE_SIZE_BYTE / 2));
+    mPageBuf = ByteBuffer.allocate((int) (4 * Constants.KB));
     if (mBlockDir.exists()) {
       if (mBlockDir.isFile()) {
         throw new IOException(
